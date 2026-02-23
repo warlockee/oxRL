@@ -223,9 +223,18 @@ class Config(BaseModel):
 
     def sync_deepspeed_config(self, world_size: int):
             """
-            Sync DeepSpeed config from train/model without duplicating YAML fields.
+            Sync DeepSpeed config from train/model settings.
             """
-            # 1 — Batch Sizes (required for both SL and RL)
+            self._sync_batch_sizes(world_size)
+            self._sync_gradient_clipping()
+            self._sync_dtype()
+            self._sync_optimizer()
+            self._sync_scheduler()
+            self._sync_zero_defaults()
+            self._sync_ref_model_config()
+
+    def _sync_batch_sizes(self, world_size: int):
+            """1 — Batch Sizes (required for both SL and RL)."""
             self.deepspeed.train_micro_batch_size_per_gpu = self.train.train_batch_size_per_gpu
             self.deepspeed.gradient_accumulation_steps = self.train.gradient_accumulation_steps
 
@@ -234,10 +243,12 @@ class Config(BaseModel):
             if world_size is not None and self.run.method == "sl":
                 self.deepspeed.train_batch_size = self.train.train_batch_size_per_gpu * self.train.gradient_accumulation_steps * world_size
 
-            # 2 — Gradient Clipping
+    def _sync_gradient_clipping(self):
+            """2 — Gradient Clipping."""
             self.deepspeed.gradient_clipping = float(self.train.clip_grad_norm)
 
-            # 3 — FP16 / BF16
+    def _sync_dtype(self):
+            """3 — FP16 / BF16."""
             dtype = self.model.dtype.lower()
             if dtype in ("float16", "fp16"):
                 self.deepspeed.fp16["enabled"] = True
@@ -251,7 +262,8 @@ class Config(BaseModel):
                 self.deepspeed.fp16["enabled"] = False
                 self.deepspeed.bf16["enabled"] = False
 
-            # 4 — Optimizer (Auto-Sync)
+    def _sync_optimizer(self):
+            """4 — Optimizer (Auto-Sync)."""
             # We map generic "optimizer_name" to DeepSpeed's expected structure
             # To use DeepSpeedCPUAdam (for offload), we simply specify "Adam" or "AdamW"
             if "adamw" in self.train.optimizer_name.lower():
@@ -271,7 +283,8 @@ class Config(BaseModel):
                 }
             }
 
-            # 5 — Scheduler (Auto-Sync)
+    def _sync_scheduler(self):
+            """5 — Scheduler (Auto-Sync)."""
             if self.train.lr_scheduler == "WarmupCosineLR":
                 # SL uses micro_batches_per_epoch (convert to optimizer steps)
                 # RL uses train_steps_per_epoch (already optimizer steps)
@@ -300,7 +313,8 @@ class Config(BaseModel):
             else:
                 raise ValueError(f"Unsupported scheduler: {self.train.lr_scheduler}")
 
-            # 6 — ZeRO Defaults (Ensure robust ZeRO-3 settings)
+    def _sync_zero_defaults(self):
+            """6 — ZeRO Defaults (Ensure robust ZeRO-3 settings)."""
             if self.deepspeed.zero_optimization is None:
                 self.deepspeed.zero_optimization = {}
 
@@ -321,7 +335,8 @@ class Config(BaseModel):
                 if "stage3_gather_16bit_weights_on_model_save" not in self.deepspeed.zero_optimization:
                     self.deepspeed.zero_optimization["stage3_gather_16bit_weights_on_model_save"] = True
 
-            # 7 — Generate ref model config (inference-only, no optimizer/updates)
+    def _sync_ref_model_config(self):
+            """7 — Generate ref model config (inference-only, no optimizer/updates)."""
             if self.deepspeed_ref is None and self.model.ref_model:
                 # Start from the main deepspeed config
                 ds_dict = self.deepspeed.model_dump()
