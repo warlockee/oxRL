@@ -1,6 +1,10 @@
 import os
 import logging
-import mlflow
+
+try:
+    import mlflow
+except ImportError:
+    mlflow = None
 
 def setup_logging(rank: int, log_level: str = "INFO", exp_name: str = "") -> logging.Logger:
     '''
@@ -35,8 +39,10 @@ def setup_mlflow(config, tracking_uri: str, rank: int):
     if rank != 0:
         return None
 
-    # Set tracking URI
-    #tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "./mlruns")
+    if mlflow is None:
+        logging.getLogger().warning("mlflow not installed — skipping experiment tracking. pip install mlflow to enable.")
+        return None
+
     mlflow.set_tracking_uri(tracking_uri)
 
     # Set experiment name
@@ -76,3 +82,13 @@ def setup_mlflow(config, tracking_uri: str, rank: int):
         })
 
     return run
+
+def log_metrics(metrics: dict, step: int = None):
+    '''Log metrics to MLflow. No-op if mlflow is not installed.'''
+    if mlflow is not None:
+        mlflow.log_metrics(metrics, step=step)
+
+def end_run():
+    '''End the current MLflow run. No-op if mlflow is not installed.'''
+    if mlflow is not None:
+        mlflow.end_run()

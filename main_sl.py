@@ -9,14 +9,13 @@ from torch.utils.data import DataLoader, DistributedSampler
 import torch.distributed as torch_dist
 from tqdm import tqdm
 import gc
-import mlflow
 import time
 
 # imports local methods, classes, etc.
 import configs.load as cfg# all config arguments
 from datasets.prompt_response import PromptResponseDataset
 from utils.utils import safe_string_to_torch_dtype, get_experiment_dir_name
-from utils.logging import setup_logging, setup_mlflow
+from utils.logging import setup_logging, setup_mlflow, log_metrics, end_run
 from utils.setup import set_random_seeds, get_distributed_info, load_tokenizer
 from algs.SFT.sft import SFT
 
@@ -293,7 +292,7 @@ if __name__ == "__main__":
             if rank == 0:
                 progress_bar.set_postfix(loss=metric['loss'])
                 if mlflow_run and model_engine.is_gradient_accumulation_boundary():
-                    mlflow.log_metrics({
+                    log_metrics({
                         "train/loss": metric['loss'],
                     }, step=global_step)
 
@@ -331,7 +330,7 @@ if __name__ == "__main__":
         if rank == 0:
             print(f"Epoch {epoch+1}, Validation Loss: {global_avg_loss}")
             if mlflow_run:
-                mlflow.log_metrics({
+                log_metrics({
                     "val/loss": global_avg_loss,
                 }, step=global_step)
 
@@ -357,4 +356,4 @@ if __name__ == "__main__":
 
     # End MLflow run cleanly
     if rank == 0 and mlflow_run:
-        mlflow.end_run()
+        end_run()

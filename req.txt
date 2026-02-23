@@ -1,2 +1,10 @@
-pip3 install pydantic
-pip3 install pyyaml
+torch>=2.0
+numpy
+transformers>=4.34
+datasets
+deepspeed>=0.12
+vllm>=0.4
+ray>=2.9
+pydantic>=2.0
+pyyaml
+tqdm
