@@ -1,10 +1,8 @@
 import os
-import random
 import numpy as np
 import argparse
 import importlib
 import torch
-from transformers import AutoTokenizer
 from torch.utils.data import DataLoader, DistributedSampler
 from tqdm import tqdm
 import ray
@@ -13,45 +11,13 @@ import mlflow
 
 # imports local methods, classes, etc.
 import configs.load as cfg # all config arguments
-from custom_datasets.prompt_only import PromptOnlyDataset # our custom pytorch dataset
-from misc.utils import safe_string_to_torch_dtype, get_experiment_dir_name
+from datasets.prompt_only import PromptOnlyDataset # our custom pytorch dataset
+from utils.utils import safe_string_to_torch_dtype, get_experiment_dir_name
 from rollouts.vllm_engine import VLLMRolloutEngine
 from rollouts.replay_buffer import ReplayBuffer
-from misc.logging import setup_logging, setup_mlflow
-
-def set_random_seeds(seed):
-    '''
-        Set random seeds to make runs more reproducible (still not guaranteed). With distributed training,
-        floating-point math and non-deterministic ops (e.g., torch.Tensor.index_add_) can still cause differences,
-        seeding just reduces the variance a bit.
-    '''
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-
-def rank_setup():
-    '''
-        Detect rank from environment variables.
-    '''
-    # Unique id of gpu in the ENTIRE WORLD. It ranges from 0 to world_size - 1
-    rank = int(os.environ.get('RANK', 0))
-
-    # Unique id of gpu in the LOCAL node (or simply one node). It ranges from 0 to local_node_size - 1
-    local_rank = int(os.environ.get('LOCAL_RANK', 0))
-
-    # add some checks to make sure number of gpus and local rank are correct.
-    if not torch.cuda.is_available():
-        if rank == 0:
-            print("Warning: CUDA is not available, running on CPU. Sorry!")
-    else:
-        num_local_gpus = torch.cuda.device_count()
-        if local_rank >= num_local_gpus:
-            raise RuntimeError(f"LOCAL_RANK {local_rank} >= available GPUs {num_local_gpus}")
-
-        torch.cuda.set_device(local_rank)
-
-    return rank, local_rank
+from utils.logging import setup_logging, setup_mlflow
+from utils.setup import set_random_seeds, get_rank_info, load_tokenizer
+from algs.grpo import GRPO
 
 def setup_ray(ray_address):
     '''
@@ -93,6 +59,9 @@ def training_engine_setup(params, alg, world_size, master_addr, master_port):
                # deepspeed related arguments
                'deepspeed_config':params.deepspeed,
                'deepspeed_ref_config':params.deepspeed_ref,
+
+               # algorithm related arguments
+               'loss_variant':params.train.alg_name.lower(),
     }
     # setup ray runners
     ray_runners = []
@@ -151,27 +120,6 @@ def rollout_engine_setup(params, reward_fnc, eos_id):
         rollout_engines.append(VLLMRolloutEngine.options(num_gpus=tp).remote(**kwargs))
 
     return num_rollout_engines, rollout_engines
-
-def load_tokenizer(model_name, trust_remote_code=False, rank=0):
-    '''
-       Load tokenizer from huggingface.
-    '''
-    tokenizer = AutoTokenizer.from_pretrained(model_name,
-                                              trust_remote_code=trust_remote_code)
-
-    # if pad token is not present, we use eos token as pad token
-    # log warning if pad token is not present.
-    if tokenizer.pad_token_id is None:
-        if rank == 0:
-            print("Warning: Pad token is not present, using eos token as pad token")
-        if getattr(tokenizer, 'eos_token', None) is not None:
-            # prefer explicit token if available
-            tokenizer.add_special_tokens({'pad_token': tokenizer.eos_token})
-        else:
-            # fallback to eos token id
-            tokenizer.pad_token_id = tokenizer.eos_token_id
-
-    return tokenizer
 
 def rollout_dataloader_setup(params, tokenizer, num_rollout_engines):
     '''
@@ -280,7 +228,7 @@ if __name__ == "__main__":
     ########
     # 1. Miscellaneous setups
     ########
-    rank, local_rank = rank_setup()
+    rank, local_rank = get_rank_info()
 
     # Setup logging
     logger = setup_logging(rank=rank, log_level=args.log_level)
@@ -312,16 +260,13 @@ if __name__ == "__main__":
     # 3. initialize training engine
     ########
     logger.info(f"Setting up training algorithm: {config.train.alg_name}")
-    alg_name = str.lower(config.train.alg_name)
-    if alg_name in {'sgrpo', 'cispo'}:
-        if alg_name == 'sgrpo':
-            import algs.SGRPO.sgrpo as calg
-            alg = calg.SGRPO
-        elif alg_name == 'cispo':
-            import algs.CISPO.cispo as calg
-            alg = calg.CISPO
-    else:
-        raise ValueError(f"Unknown algorithm: {config.train.alg_name}")
+
+    RL_ALGORITHMS = {"sgrpo": GRPO, "cispo": GRPO}
+
+    alg_name = config.train.alg_name.lower()
+    if alg_name not in RL_ALGORITHMS:
+        raise ValueError(f"Unknown algorithm: {alg_name}. Available: {list(RL_ALGORITHMS)}")
+    alg = RL_ALGORITHMS[alg_name]
 
     training_engine_runners = training_engine_setup(params=config,
                                                     alg=alg,
