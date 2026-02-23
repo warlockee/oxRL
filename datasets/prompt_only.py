@@ -6,12 +6,13 @@ class PromptOnlyDataset(Dataset):
     '''
         Returns tokenized prompt ids as a list[int] which can be a variable length.
     '''
-    def __init__(self, 
+    def __init__(self,
                 prompt_key: str,
                 tokenizer,
                 max_seq_len: int,
                 data_path: str,
                 return_text: bool=False,
+                answer_key: str="",
                 ):
         assert prompt_key != "", "prompt_key cannot be empty"
         assert max_seq_len > 0, "max_seq_len must be > 0"
@@ -26,6 +27,7 @@ class PromptOnlyDataset(Dataset):
         self.tokenizer   = tokenizer
         self.data_path   = data_path
         self.return_text = return_text
+        self.answer_key  = answer_key
         self._load_data()
 
     def _load_data(self):
@@ -78,18 +80,24 @@ class PromptOnlyDataset(Dataset):
             raise ValueError(f"Prompt in sample {idx}:{sample}: too long: "
                              f"prompt must be at most {self.max_seq_len} tokens (got {len(prompt_ids)})")
 
-        if self.return_text == False:
-            return {"prompt_token_ids": prompt_ids}
+        result = {"prompt_token_ids": prompt_ids}
 
-        # Get the prompt text for debugging. it can be used for vLLM rollout too
-        prompt_text = self.tokenizer.apply_chat_template(
-                                        conversation=message,
-                                        add_generation_prompt=True,
-                                        tokenize=False,
-                                        return_tensors=None,
-                                        )
+        # Pass answer through as metadata so reward functions can access it.
+        # answer_key controls which parquet column to read; it always arrives
+        # at the reward function as metadata["answer"].
+        if self.answer_key and self.answer_key in sample:
+            result["metadata"] = {"answer": sample[self.answer_key]}
 
-        return  {"prompt_token_ids": prompt_ids, "text": prompt_text}
+        if self.return_text:
+            prompt_text = self.tokenizer.apply_chat_template(
+                                            conversation=message,
+                                            add_generation_prompt=True,
+                                            tokenize=False,
+                                            return_tensors=None,
+                                            )
+            result["text"] = prompt_text
+
+        return result
 
     def __len__(self):
         return self.len_data
