@@ -255,16 +255,21 @@ class VLLMRolloutEngine:
                                      f"but loaded_version={int(self.loaded_version)}. ")
 
                 assert self.vllm_engine is not None, f"{self.model_path} not loaded."
-                self.log(f"Generating completions for {len(prompts)} prompts with {self.n_samples} samples each")
-                generated_outputs = self.vllm_engine.generate(prompts,
+
+                # Strip metadata before passing to vLLM (it rejects unknown keys)
+                metadata_list = [p.get("metadata") for p in prompts]
+                vllm_prompts  = [{k: v for k, v in p.items() if k != "metadata"} for p in prompts]
+
+                self.log(f"Generating completions for {len(vllm_prompts)} prompts with {self.n_samples} samples each")
+                generated_outputs = self.vllm_engine.generate(vllm_prompts,
                                                              sampling_params=self.sampling_params,
                                                              use_tqdm=False)
-                self.log(f"Generation complete for {len(prompts)} prompts")
+                self.log(f"Generation complete for {len(vllm_prompts)} prompts")
 
                 # generated_outputs has prompt_ids and other outputs
                 # this works even if n_samples >= 1
                 rollout_samples = []
-                for data in generated_outputs:
+                for prompt_idx, data in enumerate(generated_outputs):
                     group_samples = []
                     group_stats   = {'rewards': [], 'lengths': []}
                     prompt_ids = list(data.prompt_token_ids or [])
@@ -294,8 +299,12 @@ class VLLMRolloutEngine:
 
                         rewards   = torch.zeros((seq_len,), dtype=torch.float32, device='cpu')
 
+                        # Build per-response metadata for reward function
+                        resp_metadata = metadata_list[prompt_idx].copy() if metadata_list[prompt_idx] else {}
+                        resp_metadata["response_text"] = getattr(response, "text", "")
+
                         # it is important to score the response regardless of its length if it is empty
-                        rewards_resp, is_per_token = self.score_response(prompt_ids, response_ids, finish_reason)
+                        rewards_resp, is_per_token = self.score_response(prompt_ids, response_ids, finish_reason, metadata=resp_metadata)
                         rewards[prompt_len:] = rewards_resp
 
                         # is_per_token is False, then rewards_resp will only have value for the last element
@@ -383,14 +392,14 @@ class VLLMRolloutEngine:
 
                 return rollout_samples
 
-    def score_response(self, prompt_ids, response_ids, finish_reason) -> torch.Tensor:
+    def score_response(self, prompt_ids, response_ids, finish_reason, metadata=None) -> torch.Tensor:
         '''
             Calculate the reward for each response token.
             it returns a float tensor of len(response_ids).
         '''
         with torch.no_grad():
             # per token rewards or scalar reward
-            rewards, is_per_token = self.reward_func(prompt_ids, response_ids, finish_reason)
+            rewards, is_per_token = self.reward_func(prompt_ids, response_ids, finish_reason, metadata=metadata)
 
         if isinstance(rewards, torch.Tensor):
             rewards = rewards.to(dtype=torch.float32, device='cpu')
@@ -451,7 +460,7 @@ if __name__ == "__main__":
     ray.init(local_mode=True)
     tokenizer = AutoTokenizer.from_pretrained('google/gemma-3-1b-it')
 
-    def default_reward_func(prompt_ids, response_ids, finish_reason):
+    def default_reward_func(prompt_ids, response_ids, finish_reason, metadata=None):
         is_per_token = False
         r = torch.zeros((len(response_ids),), dtype=torch.float32)
 
