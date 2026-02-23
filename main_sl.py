@@ -4,7 +4,7 @@ import numpy as np
 import argparse
 import deepspeed
 import torch
-from transformers import AutoModel, AutoTokenizer, AutoModelForCausalLM, AutoConfig
+from transformers import AutoModelForCausalLM, AutoConfig
 from torch.utils.data import DataLoader, DistributedSampler
 import torch.distributed as torch_dist
 from tqdm import tqdm
@@ -14,49 +14,13 @@ import time
 
 # imports local methods, classes, etc.
 import configs.load as cfg# all config arguments
-from custom_datasets.prompt_response import PromptResponseDataset
-from misc.utils import safe_string_to_torch_dtype, get_experiment_dir_name
-from misc.logging import setup_logging, setup_mlflow
+from datasets.prompt_response import PromptResponseDataset
+from utils.utils import safe_string_to_torch_dtype, get_experiment_dir_name
+from utils.logging import setup_logging, setup_mlflow
+from utils.setup import set_random_seeds, get_distributed_info, load_tokenizer
+from algs.SFT.sft import SFT
 
-def set_random_seeds(seed):
-    '''
-        Set random seeds to make runs more reproducible (still not guaranteed). With distributed training,
-        floating-point math and non-deterministic ops (e.g., torch.Tensor.index_add_) can still cause differences,
-        seeding just reduces the variance a bit.
-    '''
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-
-def rank_world_size_setup():
-    '''
-        Detect rank and world size from environment variables.
-        we way to run is to use torchrun (torchrun --nnodes=2 --nproc_per_node=4 main_sl.py) where we can specify
-        nnodes=2 -> world_size
-        nproc_per_node=4 -> local_world_size/num_local_gpus
-    '''
-    # total number of gpus (e.g, 2 nodes x 4 gpus = 8 gpus in total). world size need to be at least 1
-    world_size = int(os.environ.get('WORLD_SIZE', 1))
-
-    # Unique id of gpu in the ENTIRE WORLD. It ranges from 0 to world_size - 1
-    rank = int(os.environ.get('RANK', 0))
-
-    # Unique id of gpu in the LOCAL node (or simply one node). It ranges from 0 to local_node_size - 1
-    local_rank = int(os.environ.get('LOCAL_RANK', 0))
-
-    # add some checks to make sure number of gpus and local rank are correct.
-    if not torch.cuda.is_available():
-        if rank == 0:
-            print("Warning: CUDA is not available, running on CPU. Sorry!")
-    else:
-        num_local_gpus = torch.cuda.device_count()
-        if local_rank >= num_local_gpus:
-            raise RuntimeError(f"LOCAL_RANK {local_rank} >= available GPUs {num_local_gpus}")
-
-        torch.cuda.set_device(local_rank)
-
-    return rank, world_size, local_rank
+SL_ALGORITHMS = {"sft": SFT}
 
 def load_models_and_tokenizer(model_name, model_dtype, ref_model_name, trust_remote_code, attn_impl, rank):
     '''
@@ -88,24 +52,9 @@ def load_models_and_tokenizer(model_name, model_dtype, ref_model_name, trust_rem
         ref_model = None
 
     # 2. Tokenizer initialization
-    tokenizer = AutoTokenizer.from_pretrained(model_name,
-                                              trust_remote_code=trust_remote_code)
+    tokenizer = load_tokenizer(model_name, trust_remote_code=trust_remote_code, rank=rank)
 
-    # if pad token is not present, we use eos token as pad token
-    # log warning if pad token is not present.
-    if tokenizer.pad_token_id is None:
-        if rank == 0:
-            print("Warning: Pad token is not present, using eos token as pad token")
-
-        if getattr(tokenizer, 'eos_token', None) is not None:
-            # prefer explicit token if available
-            tokenizer.add_special_tokens({'pad_token': tokenizer.eos_token})
-
-        else:
-            # fallback to eos token id
-            tokenizer.pad_token_id = tokenizer.eos_token_id
-
-    return model, ref_model, tokenizer  
+    return model, ref_model, tokenizer
 
 def training_engine_setup(deepspeed_config, model, ref_model=None):
     '''
@@ -198,7 +147,7 @@ if __name__ == "__main__":
     ########
     # 1. Setup Environment
     ########
-    rank, world_size, local_rank = rank_world_size_setup()
+    rank, world_size, local_rank = get_distributed_info()
     logger = setup_logging(rank=rank, log_level=args.log_level)
 
     ########
@@ -256,17 +205,15 @@ if __name__ == "__main__":
     ########
     # 7. Intitate the learning algorithm (e.g., ppo)
     ########
-    if str.lower(config.train.alg_name) in {'sft'}:
-        if str.lower(config.train.alg_name) == 'sft':
-            import algs.SFT.sft as calg
-            alg = calg.SFT(
-                           model_engine=model_engine,
-                           optimizer=optimizer,
-                           use_cache=config.model.use_cache,
-                           normalize_loss=config.train.normalize_loss)
+    alg_name = config.train.alg_name.lower()
+    if alg_name not in SL_ALGORITHMS:
+        raise ValueError(f"Unknown algorithm: {alg_name}. Available: {list(SL_ALGORITHMS)}")
+    alg_cls = SL_ALGORITHMS[alg_name]
 
-    else:
-        raise ValueError(f"Unknown algorithm: {config.train.alg_name}")
+    alg = alg_cls(model_engine=model_engine,
+                   optimizer=optimizer,
+                   use_cache=config.model.use_cache,
+                   normalize_loss=config.train.normalize_loss)
 
     ########
     # 8. Training and evaluation loop
