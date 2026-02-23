@@ -7,7 +7,6 @@ from torch.utils.data import DataLoader, DistributedSampler
 from tqdm import tqdm
 import ray
 import time
-import mlflow
 
 # imports local methods, classes, etc.
 import configs.load as cfg # all config arguments
@@ -15,7 +14,7 @@ from datasets.prompt_only import PromptOnlyDataset # our custom pytorch dataset
 from utils.utils import safe_string_to_torch_dtype, get_experiment_dir_name
 from rollouts.vllm_engine import VLLMRolloutEngine
 from rollouts.replay_buffer import ReplayBuffer
-from utils.logging import setup_logging, setup_mlflow
+from utils.logging import setup_logging, setup_mlflow, log_metrics, end_run
 from utils.setup import set_random_seeds, get_rank_info, load_tokenizer
 from algs.grpo import GRPO
 
@@ -439,7 +438,7 @@ if __name__ == "__main__":
 
             # Log to MLflow every step (only rank 0)
             if rank == 0 and mlflow_run:
-                mlflow.log_metrics({
+                log_metrics({
                     "train/loss_total": avg_loss,
                     "train/loss_pi": avg_loss_pi,
                     "train/loss_ent": avg_loss_ent,
@@ -467,7 +466,7 @@ if __name__ == "__main__":
 
         # Log epoch metrics to MLflow
         if rank == 0 and mlflow_run:
-            mlflow.log_metrics({
+            log_metrics({
                     "epoch/avg_loss": epoch_avg_loss,
                     "epoch/avg_kl_old": epoch_avg_kl_old,
                     "epoch/avg_kl_ref": epoch_avg_kl_ref,
@@ -522,7 +521,7 @@ if __name__ == "__main__":
 
     # End MLflow run
     if rank == 0 and mlflow_run:
-        mlflow.end_run()
+        end_run()
 
     logger.info("Training completed successfully!")
     ray.shutdown()

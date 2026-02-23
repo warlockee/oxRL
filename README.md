@@ -68,7 +68,7 @@ cd oxRL
 pip install -r req.txt
 ```
 
-Dependencies: PyTorch, DeepSpeed, vLLM, Ray, Transformers, Pydantic, MLflow.
+Dependencies: PyTorch, DeepSpeed, vLLM, Ray, Transformers, Pydantic.
 
 ### Post-train a model in 3 steps
 
@@ -198,6 +198,31 @@ oxRL uses Pydantic for type-safe configuration. Every field has a sensible defau
 | `data` | `val_files_path` | Path to validation data |
 
 Everything else (optimizer, scheduler, DeepSpeed ZeRO-3, vLLM rollouts, reward function) defaults to production-tested values. See [`configs/rl_args.yaml`](configs/rl_args.yaml) for the full reference.
+
+## Experiment Tracking
+
+MLflow is supported but **optional**. oxRL works out of the box without it — training runs fine, you just won't get experiment tracking.
+
+**Without MLflow** (default): training logs to console only. Nothing to configure.
+
+**With MLflow**: install it and set the tracking URI in your config:
+
+```bash
+pip install mlflow
+```
+
+```yaml
+run:
+  tracking_uri: "http://localhost:5000"  # or your MLflow server
+```
+
+Start a local MLflow UI:
+
+```bash
+mlflow ui --port 5000
+```
+
+oxRL automatically logs hyperparameters, per-step losses, KL divergence, clip fractions, rewards, and epoch-level aggregates to MLflow.
 
 ## Key Design Decisions
 
