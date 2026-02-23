@@ -129,7 +129,8 @@ def rollout_dataloader_setup(params, tokenizer, num_rollout_engines):
                                   max_seq_len=params.data.max_seq_len,
                                   tokenizer=tokenizer,
                                   data_path=params.data.train_files_path,
-                                  return_text=False)
+                                  return_text=False,
+                                  answer_key=params.data.answer_key)
 
     # since we split the data across the rollout engines
     bsz = num_rollout_engines * params.rollout.rollout_batch_size_per_gpu
