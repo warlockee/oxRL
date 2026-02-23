@@ -1,6 +1,6 @@
-# oxRL: Post-Training That You Can Actually Read
+# oxRL: Post-Train Any Model Under 50 Lines of Code
 
-**A lightweight, modular framework for reinforcement learning on large language models. ~4,300 lines of code. No magic. No mystery.**
+**A lightweight, modular framework for reinforcement learning on large language models. ~4K lines of framework. Under 50 lines to onboard your model.**
 
 ---
 
@@ -113,15 +113,35 @@ cd oxRL
 pip install -r req.txt
 ```
 
-Configure your training run in a YAML file, then:
+Post-train a model in under 50 lines. No boilerplate. Just your model, your data, and go:
+
+```yaml
+# quickstart.yaml — this is the entire config
+run:
+  experiment_id: "quickstart"
+  training_gpus: 2
+  rollout_gpus: 2
+
+train:
+  alg_name: "sgrpo"
+  total_number_of_epochs: 3
+  train_steps_per_epoch: 5
+
+model:
+  name: "google/gemma-3-1b-it"
+
+data:
+  train_dnames: ["my_data"]
+  train_ratios: {"my_data": 1.0}
+  train_files_path: "./data/train.parquet"
+  val_files_path: "./data/val.parquet"
+```
 
 ```bash
-# RL training (PPO, SGRPO, CISPO)
-python main_rl.py --config configs/rl_args.yaml
-
-# Supervised fine-tuning
-python main_sl.py --config configs/sl_args.yaml
+python main_rl.py --config-file quickstart.yaml
 ```
+
+Everything else — optimizer, scheduler, DeepSpeed ZeRO-3, vLLM rollouts, reward function — uses sensible defaults. Override only what you need.
 
 ## Contributing
 
