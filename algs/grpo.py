@@ -6,7 +6,7 @@ import deepspeed
 from transformers import AutoModelForCausalLM, AutoConfig
 
 @ray.remote
-class SGRPO:
+class GRPO:
     def __init__(self,
                  model_path: str,
                  model_dtype: torch.dtype,
@@ -22,9 +22,11 @@ class SGRPO:
                  deepspeed_config: deepspeed.DeepSpeedConfig,
                  ref_model_path: str = None,
                  deepspeed_ref_config = None,
+                 loss_variant: str = "sgrpo",
                  ):
 
-        self.alg_name = self.__class__.__name__
+        self.loss_variant = loss_variant
+        self.alg_name = loss_variant.upper()
         # model related parameters
         self.model_path = model_path
         self.ref_model_path = ref_model_path
@@ -243,10 +245,18 @@ class SGRPO:
         logratio = (logprobs - old_logprobs).to(torch.float32)
         ratio   = torch.exp(logratio)
 
-        # 3. compute loss: -(min(ratio * adv, clip_adv)) * mask
-        unclipped = ratio * adv
-        clip_adv  = torch.clamp(ratio, 1.0 - self.clip_low, 1.0 + self.clip_high) * adv
-        loss_pi   = -(torch.minimum(unclipped, clip_adv) * mask).sum() / denom
+        # 3. compute loss based on variant
+        if self.loss_variant == "sgrpo":
+            # SGRPO loss: -(min(ratio * adv, clip_adv)) * mask
+            unclipped = ratio * adv
+            clip_adv  = torch.clamp(ratio, 1.0 - self.clip_low, 1.0 + self.clip_high) * adv
+            loss_pi   = -(torch.minimum(unclipped, clip_adv) * mask).sum() / denom
+        else:
+            # CISPO loss: clipped_ratio.detach() * log(pi) * advantage
+            # Unlike PPO, CISPO clips the importance ratio and uses it as a weighting
+            # coefficient for the policy's log-probability more like policy gradient.
+            clipped_ratio = torch.clamp(ratio, 1.0 - self.clip_low, 1.0 + self.clip_high)
+            loss_pi = -(clipped_ratio.detach() * logprobs * adv * mask).sum() / denom
 
         # 4. compute entropy loss
         if entropies is not None and self.ent_coeff > 0.0:
@@ -324,7 +334,7 @@ class SGRPO:
             # all are [B, T]
             # zscore is normalized rewards using the number of samples for each proompt (X -mu) / (std + eps)
             # this is a simple baseline for policy gradients (PPO in this code) as it reflects relative quality
-            # among that prompt’s samples.
+            # among that prompt's samples.
             advs      = micro_batch['zscore'][:, :-1].to(device, non_blocking=True)
             #done      = micro_batch['done'][:, :-1].to(device, non_blocking=True)
             mask      = micro_batch['mask'][:, :-1].to(device, non_blocking=True)
