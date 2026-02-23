@@ -1,7 +1,7 @@
 run:
   experiment_id: "dummyrun_rl_1"
   project_name: "oxrl-exp"
-  tracking_uri: "http://mlflow.canada.boson.ai:5000/"
+  tracking_uri: "http://localhost:5000"
   distributed_training_strategy: "deepspeed-zero3"
   checkpoint_dir: "/ceph/workspace/oxrl/ckps"
   seed: 42

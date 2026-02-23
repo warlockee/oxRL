@@ -18,7 +18,7 @@
 run:
   experiment_id: "qwen05b_gsm8k"
   project_name: "oxrl-exp"
-  tracking_uri: "http://mlflow.canada.boson.ai:5000/"
+  tracking_uri: "http://localhost:5000"
   # 1 GPU for training (deepspeed) + 1 GPU for rollout (vllm) = 2 total
   training_gpus: 1
   rollout_gpus: 1
