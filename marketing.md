@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="oxRL" width="200">
+</p>
+
 # oxRL: Post-Train Any Model Under 50 Lines of Code
 
 **A lightweight, modular framework for reinforcement learning on large language models. ~4K lines of framework. Under 50 lines to onboard your model.**
