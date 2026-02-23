@@ -13,7 +13,7 @@ A lightweight post-training framework for LLMs, VLMs, and VLAs. ~4,000 lines of 
 │                         oxRL Framework                          │
 ├─────────────────────┬───────────────────┬───────────────────────┤
 │   Training Engines  │  Rollout Engines  │    Config + Data      │
-│   (Ray + DeepSpeed) │  (Ray + vLLM)     │    (Pydantic + HF)   │
+│   (Ray + DeepSpeed) │  (Ray + vLLM)     │    (Pydantic + HF)    │
 ├─────────────────────┼───────────────────┼───────────────────────┤
 │                     │                   │                       │
 │  algs/grpo.py       │ rollouts/         │ configs/load.py       │
@@ -22,7 +22,7 @@ A lightweight post-training framework for LLMs, VLMs, and VLAs. ~4,000 lines of 
 │  algs/PPO/ppo.py    │                   │ datasets/             │
 │  algs/SFT/sft.py    │                   │   prompt_only.py      │
 │                     │                   │   prompt_response.py  │
-│                     │                   │   mixed_ratio_sampler  │
+│                     │                   │   mixed_ratio_sampler │
 ├─────────────────────┴───────────────────┴───────────────────────┤
 │  utils/setup.py  │  utils/logging.py  │  rewards/compute_score  │
 └──────────────────┴────────────────────┴─────────────────────────┘
@@ -32,7 +32,7 @@ A lightweight post-training framework for LLMs, VLMs, and VLAs. ~4,000 lines of 
 
 ```
 ┌──────────────┐     ┌───────────────────┐     ┌──────────────────┐
-│ Load Config  │────▶│  Initialize Ray    │────▶│ Create Engines   │
+│ Load Config  │────▶│  Initialize Ray   │────▶│ Create Engines   │
 │ (YAML file)  │     │  Cluster          │     │ N train + M roll │
 └──────────────┘     └───────────────────┘     └────────┬─────────┘
                                                         │
