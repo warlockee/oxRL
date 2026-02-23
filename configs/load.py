@@ -9,17 +9,17 @@ class Run(BaseModel):
     '''
     model_config = ConfigDict(extra='forbid')
     experiment_id: str
-    distributed_training_strategy: str
-    seed: int
-    project_name: str
-    tracking_uri: str
+    distributed_training_strategy: str = "deepspeed-zero3"
+    seed: int = 42
+    project_name: str = "oxrl-exp"
+    tracking_uri: str = "http://localhost:5000"
     method: str = None
 
     # RL-specific fields
     training_gpus: int | None = None
     rollout_gpus: int | None = None
     ray_address: str | None = None
-    ray_master_port: int | None = None
+    ray_master_port: int = 29500
     checkpoint_dir: str | None = None
 
 class Train(BaseModel):
@@ -30,22 +30,22 @@ class Train(BaseModel):
     ###############
     # optimizer related arguments
     ###############
-    optimizer_name: str
+    optimizer_name: str = "adamw"
     alg_name: str
-    lr: float = Field(..., gt=0)
-    adam_epsilon: float
-    betas: list[float]
-    weight_decay: float
-    warmup_steps_ratio: float
-    clip_grad_norm: float
-    lr_scheduler: str
+    lr: float = Field(default=1e-5, gt=0)
+    adam_epsilon: float = 1e-8
+    betas: list[float] = Field(default_factory=lambda: [0.9, 0.95])
+    weight_decay: float = 0.01
+    warmup_steps_ratio: float = 0.1
+    clip_grad_norm: float = 1.0
+    lr_scheduler: str = "WarmupCosineLR"
 
     # RL-specific policy arguments
-    kl_coeff: float | None = None
-    clip_low: float | None = None
-    clip_high: float | None = None
-    entropy_coeff: float | None = None
-    update_after_full_replay: bool | None = None
+    kl_coeff: float | None = 0.0
+    clip_low: float | None = -0.2
+    clip_high: float | None = 0.2
+    entropy_coeff: float | None = 0.0
+    update_after_full_replay: bool | None = True
 
     ###############
     # general training  loop arguments
@@ -63,7 +63,7 @@ class Train(BaseModel):
     # Optimizer steps = micro_batches_per_epoch // gradient_accumulation_steps
     micro_batches_per_epoch: int | None = None
 
-    dynamic_ratio_every_step: bool
+    dynamic_ratio_every_step: bool = True
 
     ###############
     # Arguments which are common to both deepspeed and standalone training.
@@ -72,11 +72,11 @@ class Train(BaseModel):
     # we are setting them here and update deepspeed config accordingly.
     # Note: train_batch_size_per_gpu is same as train_micro_batch_size_per_gpu
     # global batch_size would be train_batch_size_per_gpu * gradient_accumulation_steps * number_of_gpus.
-    train_batch_size_per_gpu: int
-    gradient_accumulation_steps: int
-    val_batch_size_per_gpu: int
+    train_batch_size_per_gpu: int = 2
+    gradient_accumulation_steps: int = 1
+    val_batch_size_per_gpu: int = 16
 
-    normalize_loss: bool
+    normalize_loss: bool = True
 
 class Data(BaseModel):
     '''
@@ -87,10 +87,10 @@ class Data(BaseModel):
     train_ratios: dict[str, float]
     train_files_path: str
     val_files_path: str
-    num_workers: int
-    max_seq_len: int
-    prompt_key: str
-    answer_key: str
+    num_workers: int = 4
+    max_seq_len: int = 512
+    prompt_key: str = "prompt"
+    answer_key: str = "answer"
 
 class Model(BaseModel):
     '''
@@ -98,14 +98,14 @@ class Model(BaseModel):
     '''
     model_config = ConfigDict(extra='forbid')
     name: str
-    dtype: str
-    ref_model: str
-    ref_model_offload_to_cpu: bool = False
-    trust_remote_code: bool
-    use_cache: bool
-    model_class: str
-    attn_implementation: str
-    gradient_checkpointing: bool
+    dtype: str = "bfloat16"
+    ref_model: str = ""
+    ref_model_offload_to_cpu: bool = True
+    trust_remote_code: bool = False
+    use_cache: bool = False
+    model_class: str = "llm"
+    attn_implementation: str = "flash_attention_2"
+    gradient_checkpointing: bool = True
 
 class DeepSpeed(BaseModel):
     '''
@@ -125,14 +125,27 @@ class DeepSpeed(BaseModel):
     bf16: Dict[str, Any] = Field(default_factory=lambda: {"enabled": False})
 
     # ZeRO Optimization
-    zero_optimization: Dict[str, Any] = Field(default_factory=dict)
+    zero_optimization: Dict[str, Any] = Field(default_factory=lambda: {
+        "stage": 3,
+        "stage3_param_persistence_threshold": 1e5,
+        "stage3_prefetch_bucket_size": 5e7,
+        "contiguous_gradients": True,
+        "overlap_comm": True,
+        "reduce_scatter": True,
+        "reduce_bucket_size": 5e8,
+        "allgather_bucket_size": 5e8,
+        "stage3_gather_16bit_weights_on_model_save": True,
+    })
 
     # Activation Checkpointing
-    activation_checkpointing: Dict[str, Any] = Field(default_factory=dict)
+    activation_checkpointing: Dict[str, Any] = Field(default_factory=lambda: {
+        "partition_activations": True,
+        "contiguous_memory_optimization": True,
+    })
 
     # Logging
-    steps_per_print: int | None = None
-    wall_clock_breakdown: bool | None = None
+    steps_per_print: int = 100
+    wall_clock_breakdown: bool = False
 
     # Flops profiler
     flops_profiler: Dict[str, Any] | None = None
@@ -157,35 +170,35 @@ class InferenceEngine(BaseModel):
         Everything related to inference goes here.
     '''
     model_config = ConfigDict(extra='forbid')
-    name: str
+    name: str = "vllm"
 
 class Reward(BaseModel):
     '''
         Everything related to rewards (RL-specific).
     '''
     model_config = ConfigDict(extra='forbid')
-    broadcast: bool | None = None
-    eps_reward_norm: float | None = None
-    reward_func: str | None = None
+    broadcast: bool = False
+    eps_reward_norm: float = 1e-8
+    reward_func: str = "default_reward_func"
 
 class Rollout(BaseModel):
     '''
         Everything related to rollout generation (RL-specific).
     '''
     model_config = ConfigDict(extra='forbid')
-    temperature: float | None = None
-    max_tokens: int | None = None
-    n_samples: int | None = None
-    top_p: float | None = None
-    top_k: int | None = None
-    ignore_eos: bool | None = None
-    stop: str | None = None
-    gpu_memory_utilization: float | None = None
-    stop_token_ids: list[int] | None = None
-    prompt_logprobs: bool | None = None
-    force_strict_on_policy: bool | None = None
-    tensor_parallel_size: int | None = None
-    rollout_batch_size_per_gpu: int | None = None
+    temperature: float = 1.0
+    max_tokens: int = 512
+    n_samples: int = 8
+    top_p: float = 1.0
+    top_k: int = -1
+    ignore_eos: bool = False
+    stop: str = ""
+    gpu_memory_utilization: float = 0.5
+    stop_token_ids: list[int] = Field(default_factory=list)
+    prompt_logprobs: bool = False
+    force_strict_on_policy: bool = True
+    tensor_parallel_size: int = 1
+    rollout_batch_size_per_gpu: int = 2
 
 class Config(BaseModel):
     '''
@@ -197,11 +210,11 @@ class Config(BaseModel):
     train: Train
     model: Model
     data: Data
-    deepspeed: DeepSpeed
-    inference_engine: InferenceEngine
+    deepspeed: DeepSpeed = Field(default_factory=DeepSpeed)
+    inference_engine: InferenceEngine = Field(default_factory=InferenceEngine)
     # RL-specific sections
-    reward: Reward | None = None
-    rollout: Rollout | None = None
+    reward: Reward = Field(default_factory=Reward)
+    rollout: Rollout = Field(default_factory=Rollout)
     # Reference model DeepSpeed config
     deepspeed_ref: DeepSpeedRef | None = None
 
