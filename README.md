@@ -98,10 +98,16 @@ The following models have been verified and onboarded. You can find ready-to-use
 
 ### Installation
 
+From PyPI (recommended):
+```bash
+pip install oxrl
+```
+
+From source (for development):
 ```bash
 git clone https://github.com/warlockee/oxRL.git
 cd oxRL
-pip install -r req.txt
+pip install -e .
 ```
 
 Dependencies: PyTorch, DeepSpeed, vLLM, Ray, Transformers, Pydantic.
