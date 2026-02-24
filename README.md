@@ -24,6 +24,25 @@ trainer = Trainer(model="google/gemma-3-1b-it")
 trainer.train(train_file="train.jsonl", training_gpus=2, rollout_gpus=2)
 ```
 
+---
+
+## Supported Models
+
+The following models have been verified and onboarded. You can find ready-to-use scripts in the `examples/onboarded_models/` directory.
+
+| Model | Params | Task | Dataset | GPU Setup |
+|-------|--------|------|---------|-----------|
+| **Qwen2.5-0.5B-Instruct** | 0.5B | Math | GSM8K | 1 Train + 1 Rollout |
+| **Qwen2.5-1.5B-Instruct** | 1.5B | Math | GSM8K | 1 Train + 1 Rollout |
+| **Qwen2.5-Coder-1.5B-Instruct** | 1.5B | Code | MBPP | 1 Train + 1 Rollout |
+| **SmolLM2-1.7B-Instruct** | 1.7B | Instruct | UltraFeedback | 1 Train + 1 Rollout |
+| **Qwen2.5-3B-Instruct** | 3.0B | Math | MATH | 1 Train + 1 Rollout |
+| **Qwen2.5-7B-Instruct** | 7.0B | Math | GSM8K | 2 Train + 2 Rollout |
+| **DeepSeek-R1-Distill-Qwen-7B** | 7.0B | Reasoning | MATH | 2 Train + 2 Rollout |
+| **Mistral-7B-Instruct-v0.3** | 7.0B | Instruct | UltraFeedback | 2 Train + 2 Rollout |
+
+---
+
 ## System Architecture
 
 ```
