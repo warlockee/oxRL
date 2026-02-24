@@ -30,4 +30,4 @@ _ensure_cuda_home()
 
 from .trainer import Trainer
 
-__version__ = "0.1.0"
+__version__ = "0.8.1"
