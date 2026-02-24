@@ -6,6 +6,17 @@ from vllm import LLM, SamplingParams
 from typing import Optional, List, Callable, Any, Dict
 import numpy as np
 
+# Monkey-patch missing SlidingWindowCache for Phi-4-mini compatibility
+try:
+    from transformers.cache_utils import SlidingWindowCache  # noqa: F401
+except ImportError:
+    from transformers.cache_utils import DynamicCache as _DynCache
+    import transformers.cache_utils as _cu
+    class SlidingWindowCache(_DynCache):
+        """Stub for models that import SlidingWindowCache (e.g. Phi-4-mini)."""
+        pass
+    _cu.SlidingWindowCache = SlidingWindowCache
+
 @ray.remote
 class VLLMRolloutEngine:
     def __init__(self,
@@ -124,11 +135,14 @@ class VLLMRolloutEngine:
                 pass
 
         # Load new model
+        # Use V0 engine to avoid subprocess GPU isolation issues with Ray
+        os.environ["VLLM_USE_V1"] = "0"
         try:
             self.vllm_engine = LLM(model=self.model_path,
                                    trust_remote_code=self.trust_remote_code,
                                    tensor_parallel_size=self.tensor_parallel_size,
                                    gpu_memory_utilization=self.gpu_memory_utilization,
+                                   enforce_eager=True,
                                   )
             self.log(f"Successfully loaded vLLM model from {self.model_path}")
 

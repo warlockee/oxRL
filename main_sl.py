@@ -13,7 +13,12 @@ import time
 
 # imports local methods, classes, etc.
 import configs.load as cfg# all config arguments
-from datasets.prompt_response import PromptResponseDataset
+# Import local datasets module directly from file to avoid conflict with HuggingFace 'datasets' package
+import importlib.util as _ilu
+_spec = _ilu.spec_from_file_location("_prompt_response", os.path.join(os.path.dirname(__file__), "datasets", "prompt_response.py"))
+_mod = _ilu.module_from_spec(_spec)
+_spec.loader.exec_module(_mod)
+PromptResponseDataset = _mod.PromptResponseDataset
 from utils.utils import safe_string_to_torch_dtype, get_experiment_dir_name
 from utils.logging import setup_logging, setup_mlflow, log_metrics, end_run
 from utils.setup import set_random_seeds, get_distributed_info, load_tokenizer

@@ -1,0 +1,183 @@
+{
+  "models": {
+    "Qwen/Qwen2.5-0.5B-Instruct": {
+      "status": "onboarded",
+      "hf_downloads": null,
+      "param_count_b": 0.5,
+      "tasks": [
+        "math"
+      ],
+      "dataset": "gsm8k",
+      "reward_func": "gsm8k_reward_func",
+      "gpu_allocation": "1train+1rollout",
+      "config_path": "onboarded/qwen2.5-0.5b-instruct/config.yaml",
+      "error_log": null,
+      "attempts": 1,
+      "tier": 1,
+      "onboarded_at": "2026-02-24T06:34:06.878463+00:00"
+    },
+    "Qwen/Qwen2.5-1.5B-Instruct": {
+      "status": "onboarded",
+      "hf_downloads": null,
+      "param_count_b": 1.5,
+      "tasks": [
+        "math"
+      ],
+      "dataset": "gsm8k",
+      "reward_func": "gsm8k_reward_func",
+      "gpu_allocation": "1train+1rollout",
+      "config_path": "onboarded/qwen2.5-1.5b-instruct/config.yaml",
+      "error_log": null,
+      "attempts": 1,
+      "tier": 1,
+      "onboarded_at": "2026-02-24T04:56:06.971832+00:00"
+    },
+    "Qwen/Qwen2.5-Coder-1.5B-Instruct": {
+      "status": "onboarded",
+      "hf_downloads": null,
+      "param_count_b": 1.5,
+      "tasks": [
+        "code"
+      ],
+      "dataset": "mbpp",
+      "reward_func": "code_reward_func",
+      "gpu_allocation": "1train+1rollout",
+      "config_path": "onboarded/qwen2.5-coder-1.5b-instruct/config.yaml",
+      "error_log": null,
+      "attempts": 1,
+      "tier": 1,
+      "onboarded_at": "2026-02-24T05:11:45.319697+00:00"
+    },
+    "google/gemma-3-1b-it": {
+      "status": "queued",
+      "hf_downloads": null,
+      "param_count_b": 1.0,
+      "tasks": [
+        "instruct"
+      ],
+      "dataset": "ultrafeedback",
+      "reward_func": "format_reward_func",
+      "gpu_allocation": "1train+1rollout",
+      "config_path": "onboarded/gemma-3-1b-it/config.yaml",
+      "error_log": null,
+      "attempts": 0,
+      "tier": 1,
+      "onboarded_at": null
+    },
+    "HuggingFaceTB/SmolLM2-1.7B-Instruct": {
+      "status": "onboarded",
+      "hf_downloads": null,
+      "param_count_b": 1.7,
+      "tasks": [
+        "instruct"
+      ],
+      "dataset": "ultrafeedback",
+      "reward_func": "format_reward_func",
+      "gpu_allocation": "1train+1rollout",
+      "config_path": "onboarded/smollm2-1.7b-instruct/config.yaml",
+      "error_log": "",
+      "attempts": 7,
+      "tier": 1,
+      "onboarded_at": "2026-02-24T09:38:25.347677+00:00"
+    },
+    "Qwen/Qwen2.5-3B-Instruct": {
+      "status": "onboarded",
+      "hf_downloads": null,
+      "param_count_b": 3.0,
+      "tasks": [
+        "math"
+      ],
+      "dataset": "math_hard",
+      "reward_func": "math_reward_func",
+      "gpu_allocation": "1train+1rollout",
+      "config_path": "onboarded/qwen2.5-3b-instruct/config.yaml",
+      "error_log": null,
+      "attempts": 1,
+      "tier": 2,
+      "onboarded_at": "2026-02-24T07:00:58.312493+00:00"
+    },
+    "google/gemma-3-4b-it": {
+      "status": "queued",
+      "hf_downloads": null,
+      "param_count_b": 4.0,
+      "tasks": [
+        "math"
+      ],
+      "dataset": "gsm8k",
+      "reward_func": "gsm8k_reward_func",
+      "gpu_allocation": "1train+1rollout",
+      "config_path": "onboarded/gemma-3-4b-it/config.yaml",
+      "error_log": null,
+      "attempts": 0,
+      "tier": 2,
+      "onboarded_at": null
+    },
+    "microsoft/Phi-4-mini-instruct": {
+      "status": "failed",
+      "hf_downloads": null,
+      "param_count_b": 3.8,
+      "tasks": [
+        "math"
+      ],
+      "dataset": "gsm8k",
+      "reward_func": "gsm8k_reward_func",
+      "gpu_allocation": "1train+1rollout",
+      "config_path": "onboarded/phi-4-mini-instruct/config.yaml",
+      "error_log": "Phi-4 custom modeling code requires transformers > 5.2.0 (needs LossKwargs, FlashAttentionKwargs, etc.)",
+      "attempts": 6,
+      "tier": 2,
+      "onboarded_at": null
+    },
+    "Qwen/Qwen2.5-7B-Instruct": {
+      "status": "onboarded",
+      "hf_downloads": null,
+      "param_count_b": 7.0,
+      "tasks": [
+        "math"
+      ],
+      "dataset": "gsm8k",
+      "reward_func": "gsm8k_reward_func",
+      "gpu_allocation": "1train+1rollout",
+      "config_path": "onboarded/qwen2.5-7b-instruct/config.yaml",
+      "error_log": null,
+      "attempts": 1,
+      "tier": 3,
+      "onboarded_at": "2026-02-24T10:38:58.705410+00:00"
+    },
+    "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B": {
+      "status": "onboarded",
+      "hf_downloads": null,
+      "param_count_b": 7.0,
+      "tasks": [
+        "reasoning"
+      ],
+      "dataset": "math_hard",
+      "reward_func": "math_reward_func",
+      "gpu_allocation": "1train+1rollout",
+      "config_path": "onboarded/deepseek-r1-distill-qwen-7b/config.yaml",
+      "error_log": null,
+      "attempts": 1,
+      "tier": 3,
+      "onboarded_at": "2026-02-24T11:04:23.916319+00:00"
+    },
+    "mistralai/Mistral-7B-Instruct-v0.3": {
+      "status": "onboarded",
+      "hf_downloads": null,
+      "param_count_b": 7.0,
+      "tasks": [
+        "instruct"
+      ],
+      "dataset": "ultrafeedback",
+      "reward_func": "format_reward_func",
+      "gpu_allocation": "1train+1rollout",
+      "config_path": "onboarded/mistral-7b-instruct-v0.3/config.yaml",
+      "error_log": null,
+      "attempts": 1,
+      "tier": 3,
+      "onboarded_at": "2026-02-24T11:28:23.823098+00:00"
+    }
+  },
+  "oxrl_version": 1,
+  "total_onboarded": 8,
+  "total_failed": 3
+}

@@ -64,7 +64,7 @@ if __name__ == "__main__":
     parser.add_argument("--data_source", default="openai/gsm8k")
     parser.add_argument("--local_dir", required=True)
     parser.add_argument("--run_id", default="123245")
-    parser.add_argument("--use_system_prompt", default=False)
+    parser.add_argument("--use_system_prompt", default=False, type=lambda x: str(x).lower() in ("true", "1", "yes"))
     parser.add_argument("--num_proc", default=4)
     args = parser.parse_args()
     

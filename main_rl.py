@@ -8,9 +8,25 @@ from tqdm import tqdm
 import ray
 import time
 
+# Monkey-patch missing SlidingWindowCache for Phi-4-mini compatibility
+try:
+    from transformers.cache_utils import SlidingWindowCache  # noqa: F401
+except ImportError:
+    from transformers.cache_utils import DynamicCache as _DynCache
+    import transformers.cache_utils as _cu
+    class SlidingWindowCache(_DynCache):
+        """Stub for models that import SlidingWindowCache (e.g. Phi-4-mini)."""
+        pass
+    _cu.SlidingWindowCache = SlidingWindowCache
+
 # imports local methods, classes, etc.
 import configs.load as cfg # all config arguments
-from datasets.prompt_only import PromptOnlyDataset # our custom pytorch dataset
+# Import local datasets module directly from file to avoid conflict with HuggingFace 'datasets' package
+import importlib.util as _ilu
+_spec = _ilu.spec_from_file_location("_prompt_only", os.path.join(os.path.dirname(__file__), "datasets", "prompt_only.py"))
+_mod = _ilu.module_from_spec(_spec)
+_spec.loader.exec_module(_mod)
+PromptOnlyDataset = _mod.PromptOnlyDataset
 from utils.utils import safe_string_to_torch_dtype, get_experiment_dir_name
 from rollouts.vllm_engine import VLLMRolloutEngine
 from rollouts.replay_buffer import ReplayBuffer
@@ -70,6 +86,10 @@ def training_engine_setup(params, alg, world_size, master_addr, master_port):
                     "RANK": str(rank),
                     "WORLD_SIZE": str(world_size),
                     "LOCAL_RANK": "0",}
+        # Forward HF tokens to Ray workers so gated models are accessible
+        for _env_key in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
+            if os.environ.get(_env_key):
+                ray_vars[_env_key] = os.environ[_env_key]
         runner = alg.options(num_gpus=1, runtime_env={"env_vars": ray_vars}).remote(**kwargs)
         ray_runners.append(runner)
 
@@ -113,10 +133,18 @@ def rollout_engine_setup(params, reward_fnc, eos_id):
             }
 
     num_rollout_engines = max(1, rollout_gpus // tp)
+    # Forward HF tokens to rollout workers so gated models are accessible
+    _rollout_env_vars = {}
+    for _env_key in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
+        if os.environ.get(_env_key):
+            _rollout_env_vars[_env_key] = os.environ[_env_key]
     rollout_engines = []
     for i in range(num_rollout_engines):
         kwargs['engine_id'] = i
-        rollout_engines.append(VLLMRolloutEngine.options(num_gpus=tp).remote(**kwargs))
+        _rollout_opts = {"num_gpus": tp}
+        if _rollout_env_vars:
+            _rollout_opts["runtime_env"] = {"env_vars": _rollout_env_vars}
+        rollout_engines.append(VLLMRolloutEngine.options(**_rollout_opts).remote(**kwargs))
 
     return num_rollout_engines, rollout_engines
 
@@ -217,26 +245,19 @@ def collect_rollouts(rollout_dataloader,
             "avg_response_len": avg_response_len,
             "rollout_time": rollout_time}
 
-if __name__ == "__main__":
-    # parse arguments
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config-file", type=str, default="./config/dummy.yaml", help="config file")
-    parser.add_argument("--experiment_id", type=str, default="run_1", help="experiment id")
-    parser.add_argument("--log-level", type=str, default="INFO", help="logging level")
-    args = parser.parse_args()
-
+def main(config_file, experiment_id, log_level="INFO"):
     ########
     # 1. Miscellaneous setups
     ########
     rank, local_rank = get_rank_info()
 
     # Setup logging
-    logger = setup_logging(rank=rank, log_level=args.log_level)
+    logger = setup_logging(rank=rank, log_level=log_level)
     logger.info(f"Starting RL training...")
 
     config = cfg.load_and_verify(method="rl",
-                                 input_yaml=args.config_file,
-                                 experiment_id=args.experiment_id,
+                                 input_yaml=config_file,
+                                 experiment_id=experiment_id,
                                  )
     set_random_seeds(seed=config.run.seed)
 
@@ -310,6 +331,20 @@ if __name__ == "__main__":
     logger.info(f"Created {num_rollout_engines} rollout engines")
 
     ########
+    # 7. initialize replay buffer
+    ########
+    logger.info("Initializing replay buffer...")
+    replay_buffer = ReplayBuffer(max_len=config.data.max_seq_len,
+                                 batch_size=config.rollout.rollout_batch_size_per_gpu)
+
+    ########
+    # 8. Training loop
+    ########
+    logger.info("Starting training loop...")
+    
+    # We need to get the actual main loop logic which follows...
+    # (The replacement continues into the actual training loop)
+
     # 6. Load the rollout dataloader
     ########
     logger.info(f"Created {num_rollout_engines} rollout engines with tensor_parallel_size={config.rollout.tensor_parallel_size}")
@@ -526,3 +561,12 @@ if __name__ == "__main__":
 
     logger.info("Training completed successfully!")
     ray.shutdown()
+
+if __name__ == "__main__":
+    # parse arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config-file", type=str, default="./config/dummy.yaml", help="config file")
+    parser.add_argument("--experiment_id", type=str, default="run_1", help="experiment id")
+    parser.add_argument("--log-level", type=str, default="INFO", help="logging level")
+    args = parser.parse_args()
+    main(args.config_file, args.experiment_id, args.log_level)

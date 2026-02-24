@@ -1,0 +1,4 @@
+{"prompt": [{"role": "user", "content": "What is 2 + 2?"}], "answer": "4"}
+{"prompt": [{"role": "user", "content": "What is the capital of France?"}], "answer": "Paris"}
+{"prompt": [{"role": "user", "content": "Write a haiku about the ocean."}], "answer": "\u2014"}
+{"prompt": [{"role": "user", "content": "Explain gravity in one sentence."}], "answer": "\u2014"}

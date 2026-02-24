@@ -1,0 +1,17 @@
+data:
+  train_dnames:
+  - quickstart
+  train_files_path: examples/data/train.jsonl
+  train_ratios:
+    quickstart: 1.0
+  val_files_path: examples/data/train.jsonl
+model:
+  name: google/gemma-3-1b-it
+run:
+  experiment_id: quickstart
+  rollout_gpus: 2
+  training_gpus: 2
+train:
+  alg_name: sgrpo
+  total_number_of_epochs: 3
+  train_steps_per_epoch: 5

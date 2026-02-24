@@ -17,5 +17,5 @@ That is wonderful. Please open a GitHub issue with steps to reproduce, expected 
 
 ## I have a few research ideas and want guidance. Can you help?
 
-We can try. If you are comfortable sharing your idea publicly, open a GitHub issue and include enough context for others to follow along. If you prefer to discuss privately, you can email oxrl-dev. Contact details are available on the [oxrl-dev's website](https://oxrl-devfa.github.io/).
+We can try. If you are comfortable sharing your idea publicly, open a GitHub issue and include enough context for others to follow along.
 

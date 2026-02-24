@@ -17,7 +17,7 @@ class SFT:
         self.loss_fn = torch.nn.CrossEntropyLoss(reduction="none")
 
     def compute_loss(self, logits, target_ids, loss_mask):
-        '''
+        r'''
          This function implements \sum_{i=1}^{N} log p(y_i|x_i)
          target_ids is target label [B, T -1]
          logits is model prediction [B, T -1, vocab_size]

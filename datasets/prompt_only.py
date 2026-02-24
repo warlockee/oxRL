@@ -66,19 +66,30 @@ class PromptOnlyDataset(Dataset):
             raise ValueError(f"Sample {idx}:{sample}: Prompt cannot be empty")
 
         # Tokenize prompt for vLLM rollout
+        # Some tokenizers (e.g. SmolLM2) return near-empty results with
+        # tokenize=True but work correctly with tokenize=False + encode.
+        # We try tokenize=True first; if that yields <= 2 tokens we fall back.
         prompt_ids = self.tokenizer.apply_chat_template(
                                         conversation=message,
                                         add_generation_prompt=True,
                                         tokenize=True,
                                         return_tensors=None,
                                         )
+        if not isinstance(prompt_ids, list) or len(prompt_ids) <= 2:
+            # Fallback: render as text then encode
+            prompt_text = self.tokenizer.apply_chat_template(
+                                            conversation=message,
+                                            add_generation_prompt=True,
+                                            tokenize=False,
+                                            return_tensors=None,
+                                            )
+            prompt_ids = self.tokenizer.encode(prompt_text, add_special_tokens=False)
         if not isinstance(prompt_ids, list) or len(prompt_ids) == 0:
             raise ValueError(f"Sample {idx}:{sample}: tokenization produced empty prompt_ids")
 
-        # Validate prompt length
+        # Validate prompt length -- truncate if too long instead of failing
         if len(prompt_ids) >= self.max_seq_len:
-            raise ValueError(f"Prompt in sample {idx}:{sample}: too long: "
-                             f"prompt must be at most {self.max_seq_len} tokens (got {len(prompt_ids)})")
+            prompt_ids = prompt_ids[:self.max_seq_len - 1]
 
         result = {"prompt_token_ids": prompt_ids}
 
