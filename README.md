@@ -74,7 +74,24 @@ pip install -r req.txt
 
 Dependencies: PyTorch, DeepSpeed, vLLM, Ray, Transformers, Pydantic.
 
-### Post-train a model in 3 steps
+### Post-train a model in under 10 lines (Python API)
+
+**Step 1.** Prepare your data (`train.jsonl`):
+```json
+{"prompt": [{"role": "user", "content": "What is 2+2?"}], "answer": "4"}
+```
+
+**Step 2.** Run with the high-level `Trainer`:
+```python
+from oxrl import Trainer
+
+trainer = Trainer(model="google/gemma-3-1b-it")
+trainer.train(train_file="train.jsonl", training_gpus=2, rollout_gpus=2)
+```
+
+---
+
+### Post-train a model in 3 steps (CLI)
 
 **Step 1.** Prepare your data as a parquet or JSONL file with chat-format prompts:
 

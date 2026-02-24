@@ -29,6 +29,9 @@ oxRL is a lightweight, modular, production-grade framework for post-training/fin
 
 ```
 oxRL/
+├── oxrl/                    # High-level Trainer API (Python package)
+│   ├── __init__.py          # Env setup & exports
+│   └── trainer.py           # Trainer class implementation
 ├── algs/                    # Algorithm implementations
 │   ├── PPO/ppo.py          # Proximal Policy Optimization (460 lines)
 │   ├── SGRPO/sgrpo.py      # Stable GRPO variant (436 lines)
