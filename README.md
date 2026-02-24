@@ -6,9 +6,23 @@
 
 <p align="center"><strong>Post-train any model under 10 lines of code.</strong></p>
 
-<p align="center">A lightweight post-training framework for LLMs, VLMs, and VLAs. ~4,000 lines of Python. Scales to billions of parameters with DeepSpeed, vLLM, and Ray.</p>
+<p align="center">A lightweight post-training framework for LLMs, VLMs, and VLAs. Maximizing developer speed. Scales to billions of parameters with DeepSpeed, vLLM, and Ray.</p>
 
 ---
+## Usage
+
+**Step 1.** Prepare your data (`train.jsonl`):
+```json
+{"prompt": [{"role": "user", "content": "What is 2+2?"}], "answer": "4"}
+```
+
+**Step 2.** Run with the high-level `Trainer`:
+```python
+from oxrl import Trainer
+
+trainer = Trainer(model="google/gemma-3-1b-it")
+trainer.train(train_file="train.jsonl", training_gpus=2, rollout_gpus=2)
+```
 
 ## System Architecture
 
@@ -73,21 +87,6 @@ pip install -r req.txt
 ```
 
 Dependencies: PyTorch, DeepSpeed, vLLM, Ray, Transformers, Pydantic.
-
-### Post-train a model in under 10 lines (Python API)
-
-**Step 1.** Prepare your data (`train.jsonl`):
-```json
-{"prompt": [{"role": "user", "content": "What is 2+2?"}], "answer": "4"}
-```
-
-**Step 2.** Run with the high-level `Trainer`:
-```python
-from oxrl import Trainer
-
-trainer = Trainer(model="google/gemma-3-1b-it")
-trainer.train(train_file="train.jsonl", training_gpus=2, rollout_gpus=2)
-```
 
 ---
 
