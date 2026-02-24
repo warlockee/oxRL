@@ -4,7 +4,7 @@
 
 <h1 align="center">oxRL</h1>
 
-<p align="center"><strong>Post-train any model under 50 lines of code.</strong></p>
+<p align="center"><strong>Post-train any model under 10 lines of code.</strong></p>
 
 <p align="center">A lightweight post-training framework for LLMs, VLMs, and VLAs. ~4,000 lines of Python. Scales to billions of parameters with DeepSpeed, vLLM, and Ray.</p>
 
