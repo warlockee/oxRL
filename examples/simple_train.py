@@ -9,9 +9,7 @@ trainer = Trainer(
 
 # 2. Run Training
 trainer.train(
-    train_file="examples/data/train.jsonl",
-    training_gpus=1,
-    rollout_gpus=1,
+    dataset="gsm8k",
     epochs=1,
     steps_per_epoch=2
 )

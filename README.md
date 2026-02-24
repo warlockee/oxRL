@@ -9,19 +9,18 @@
 <p align="center">A lightweight post-training framework for LLMs, VLMs, and VLAs. Maximizing developer speed. Scales to billions of parameters with DeepSpeed, vLLM, and Ray.</p>
 
 ---
-## Usage
+## Usage (Python API)
 
-**Step 1.** Prepare your data (`train.jsonl`):
-```json
-{"prompt": [{"role": "user", "content": "What is 2+2?"}], "answer": "4"}
-```
+Post-train any model in under 10 lines of code. oxRL auto-detects your hardware and can auto-prepare common datasets.
 
-**Step 2.** Run with the high-level `Trainer`:
 ```python
 from oxrl import Trainer
 
-trainer = Trainer(model="google/gemma-3-1b-it")
-trainer.train(train_file="train.jsonl", training_gpus=2, rollout_gpus=2)
+# 1. Initialize with your model
+trainer = Trainer(model="Qwen/Qwen2.5-0.5B-Instruct")
+
+# 2. Start training (auto-downloads and preps dataset)
+trainer.train(dataset="gsm8k")
 ```
 
 ---
