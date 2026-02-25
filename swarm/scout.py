@@ -71,6 +71,9 @@ DATASET_SCRIPT_MAP = {
     "math_hard": "preprocessing/math_hard.py",
     "mbpp": "preprocessing/mbpp.py",
     "ultrafeedback": "preprocessing/ultrafeedback.py",
+    "vision_dummy": "preprocessing/vision_dummy.py",
+    "audio_dummy": "preprocessing/audio_dummy.py",
+    "openr1_math": "preprocessing/openr1_math.py",
 }
 
 # Timeout per tier (seconds): tier -> timeout_seconds
@@ -195,12 +198,16 @@ def step_preprocess(dataset: str, model_slug: str) -> None:
     # Ensure data directory exists
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+    use_system_prompt = "True"
+    if "gemma" in model_slug:
+        use_system_prompt = "False"
+
     cmd = [
         sys.executable,
         str(script_path),
         "--local_dir", str(DATA_DIR),
         "--run_id", model_slug,
-        "--use_system_prompt", "True",
+        "--use_system_prompt", use_system_prompt,
     ]
     logger.info("[PREPROCESS] Running: %s", " ".join(cmd))
 

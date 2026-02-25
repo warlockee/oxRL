@@ -172,6 +172,19 @@ class InferenceEngine(BaseModel):
     model_config = ConfigDict(extra='forbid')
     name: str = "vllm"
 
+class Lora(BaseModel):
+    '''
+        LoRA (Low-Rank Adaptation) settings.
+    '''
+    model_config = ConfigDict(extra='forbid')
+    enabled: bool = False
+    r: int = 16
+    lora_alpha: int = 32
+    target_modules: list[str] = Field(default_factory=lambda: ["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj"])
+    lora_dropout: float = 0.05
+    bias: str = "none"
+    task_type: str = "CAUSAL_LM"
+
 class Reward(BaseModel):
     '''
         Everything related to rewards (RL-specific).
@@ -211,6 +224,7 @@ class Config(BaseModel):
     model: Model
     data: Data
     deepspeed: DeepSpeed = Field(default_factory=DeepSpeed)
+    lora: Lora = Field(default_factory=Lora)
     inference_engine: InferenceEngine = Field(default_factory=InferenceEngine)
     # RL-specific sections
     reward: Reward = Field(default_factory=Reward)

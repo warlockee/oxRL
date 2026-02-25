@@ -274,3 +274,56 @@ def mcqa_reward_func(prompt_ids: List[int], response_ids: List[int], finish_reas
         r[-1] = 1.0
 
     return r, is_per_token
+
+
+# ---------------------------------------------------------------------------
+# Reasoning (DeepSeek-R1 style) reward
+# ---------------------------------------------------------------------------
+
+def reasoning_reward_func(prompt_ids: List[int], response_ids: List[int], finish_reason: Any, metadata: Optional[Dict] = None) -> Tuple[torch.Tensor, bool]:
+    '''
+      Reward function for reasoning models (e.g. DeepSeek-R1, Open-R1).
+      Awards up to 1.0 points based on:
+        0.2 — contains <thought>...</thought> tags
+        0.2 — contains <answer>...</answer> tags
+        0.6 — extracted answer matches ground truth
+    '''
+    is_per_token = False
+    r = torch.zeros((len(response_ids),), dtype=torch.float32)
+
+    if len(response_ids) == 0 or not metadata:
+        return r, is_per_token
+
+    response_text = metadata.get("response_text", "")
+    ground_truth = metadata.get("answer", "")
+
+    score = 0.0
+
+    # 1. Format: Thought tags
+    if "<thought>" in response_text and "</thought>" in response_text:
+        score += 0.2
+    
+    # 2. Format: Answer tags
+    if "<answer>" in response_text and "</answer>" in response_text:
+        score += 0.2
+        
+        # 3. Correctness: Extract answer from within tags if possible
+        match = re.search(r"<answer>(.*?)</answer>", response_text, re.DOTALL)
+        if match:
+            predicted = match.group(1).strip()
+            if _normalize_math(predicted) == _normalize_math(ground_truth):
+                score += 0.6
+        else:
+            # Fallback extraction if tags are present but match fails
+            predicted = extract_math_answer(response_text)
+            if predicted and _normalize_math(predicted) == _normalize_math(ground_truth):
+                score += 0.3 # Reduced reward for missing/misformatted content in tags
+    
+    else:
+        # No answer tags — try standard extraction but with penalty
+        predicted = extract_math_answer(response_text)
+        if predicted and _normalize_math(predicted) == _normalize_math(ground_truth):
+            score += 0.4
+
+    r[-1] = score
+    return r, is_per_token

@@ -3,7 +3,9 @@ import numpy as np
 from tqdm import tqdm
 import ray
 import deepspeed
-from transformers import AutoModelForCausalLM, AutoConfig
+import os
+import glob
+from transformers import AutoModelForCausalLM, AutoModelForImageTextToText, AutoConfig
 
 # Monkey-patch missing SlidingWindowCache for Phi-4-mini compatibility
 try:
@@ -31,6 +33,7 @@ class GRPO:
                  micro_batch_size_per_gpu: int,
                  update_after_full_replay: bool,
                  deepspeed_config: deepspeed.DeepSpeedConfig,
+                 lora_config = None,
                  ref_model_path: str = None,
                  deepspeed_ref_config = None,
                  loss_variant: str = "sgrpo",
@@ -45,6 +48,7 @@ class GRPO:
         self.attn_impl = attn_impl
         self.model_dtype = model_dtype
         self.trust_remote_code = trust_remote_code
+        self.lora_config = lora_config
 
         # training related parameters
         self.deepspeed_config = deepspeed_config
@@ -94,11 +98,41 @@ class GRPO:
         model, ref_model = self.load_model()
         print(f"[Alg:{self.alg_name}][Rank {rank}] Model loaded: {self.model_path}")
 
+        # Apply LoRA if enabled
+        if self.lora_config and self.lora_config.enabled:
+            from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+            
+            # Note: prepare_model_for_kbit_training is useful even if not using kbit
+            # as it enables gradient checkpointing etc. in a PEFT-friendly way.
+            if getattr(model, "is_loaded_in_4bit", False) or getattr(model, "is_loaded_in_8bit", False):
+                model = prepare_model_for_kbit_training(model)
+            
+            peft_config = LoraConfig(
+                r=self.lora_config.r,
+                lora_alpha=self.lora_config.lora_alpha,
+                target_modules=self.lora_config.target_modules,
+                lora_dropout=self.lora_config.lora_dropout,
+                bias=self.lora_config.bias,
+                task_type=self.lora_config.task_type,
+            )
+            model = get_peft_model(model, peft_config)
+            model.print_trainable_parameters()
+
         # 2. Initialize model engine
+        
+        # Remove optimizer from ds_config_dict so deepspeed doesn't build FusedAdam
+        if "optimizer" in ds_config_dict:
+            del ds_config_dict["optimizer"]
+        
+        # Filter for trainable parameters (crucial for LoRA)
+        trainable_params = [p for p in model.parameters() if p.requires_grad]
+        optimizer = torch.optim.AdamW(trainable_params, lr=1e-6, weight_decay=0.01)
+
         self.policy_engine, self.optimizer, _, _ = deepspeed.initialize(
                                                             model=model,
-                                                            model_parameters=model.parameters(),
-                                                            config=ds_config_dict
+                                                            model_parameters=trainable_params,
+                                                            config=ds_config_dict,
+                                                            optimizer=optimizer
                                                             )
         print(f"[Alg:{self.alg_name}][Rank {rank}] DeepSpeed engine initialized on device: {self.policy_engine.device}")
 
@@ -120,22 +154,55 @@ class GRPO:
         assert self.model_dtype != 'auto', "dtype must not be auto to avoid any precision issues"
         assert self.attn_impl=='' or self.attn_impl in ['eager', 'flash_attention_2'], "attn_impl must be one of 'eager', 'flash_attention_2' or empty string"
 
+        from transformers import (AutoModelForCausalLM, AutoModelForImageTextToText, 
+                                  AutoModelForMultimodalLM, AutoConfig)
+        
+        def _load(path, cfg):
+            # Try a sequence of model classes
+            load_classes = [
+                AutoModelForCausalLM,
+                AutoModelForImageTextToText,
+                AutoModelForMultimodalLM,
+            ]
+            
+            # Specific model class fallbacks for older transformers or specialized architectures
+            try:
+                from transformers import Qwen2VLForConditionalGeneration
+                load_classes.append(Qwen2VLForConditionalGeneration)
+            except ImportError:
+                pass
+            try:
+                from transformers import Qwen2AudioForConditionalGeneration
+                load_classes.append(Qwen2AudioForConditionalGeneration)
+            except ImportError:
+                pass
+
+            for cls in load_classes:
+                try:
+                    return cls.from_pretrained(path,
+                                              dtype=self.model_dtype,
+                                              trust_remote_code=self.trust_remote_code,
+                                              config=cfg,
+                                              attn_implementation=None if self.attn_impl == '' else self.attn_impl)
+                except (ValueError, TypeError):
+                    continue
+            
+            # Final attempt with AutoModel
+            from transformers import AutoModel
+            return AutoModel.from_pretrained(path,
+                                            dtype=self.model_dtype,
+                                            trust_remote_code=self.trust_remote_code,
+                                            config=cfg,
+                                            attn_implementation=None if self.attn_impl == '' else self.attn_impl)
+
         # 1. model and its config initialization
-        model_config = AutoConfig.from_pretrained(self.model_path)
-        model = AutoModelForCausalLM.from_pretrained(self.model_path,
-                                                    dtype=self.model_dtype,
-                                                    trust_remote_code=self.trust_remote_code,
-                                                    config=model_config,
-                                                    attn_implementation=None if self.attn_impl == '' else self.attn_impl)
+        model_config = AutoConfig.from_pretrained(self.model_path, trust_remote_code=self.trust_remote_code)
+        model = _load(self.model_path, model_config)
 
         # if ref model is provided to use it in kl for example.
         if self.ref_model_path and self.kl_coeff > 0.0:
-            ref_config = AutoConfig.from_pretrained(self.ref_model_path)
-            ref_model = AutoModelForCausalLM.from_pretrained(self.ref_model_path,
-                                                            dtype=self.model_dtype,
-                                                            trust_remote_code=self.trust_remote_code,
-                                                            config=ref_config,
-                                                            attn_implementation=None if self.attn_impl == '' else self.attn_impl)
+            ref_config = AutoConfig.from_pretrained(self.ref_model_path, trust_remote_code=self.trust_remote_code)
+            ref_model = _load(self.ref_model_path, ref_config)
         else:
             ref_model = None
 
@@ -154,9 +221,13 @@ class GRPO:
             if pos_ids is not None:
                 pos_ids = pos_ids.to(input_ids.device)
 
+            # Generate token_type_ids (zeros) as some models like Gemma 3 require them
+            token_type_ids = torch.zeros_like(input_ids)
+
             output = self.ref_model_engine(input_ids=input_ids,
                                            attention_mask=att_mask,
                                            position_ids=pos_ids,
+                                           token_type_ids=token_type_ids,
                                            use_cache=self.use_cache)
 
             # [B, T, V] -> [B, T-1, V]
@@ -183,10 +254,14 @@ class GRPO:
         if pos_ids is not None:
             pos_ids = pos_ids.to(input_ids.device)
 
+        # Generate token_type_ids (zeros)
+        token_type_ids = torch.zeros_like(input_ids)
+
         # feed data to model
         output = self.policy_engine(input_ids=input_ids,
                                    attention_mask=att_mask,
                                    position_ids=pos_ids,
+                                   token_type_ids=token_type_ids,
                                    use_cache=self.use_cache)
 
         # [B, T, V] -> [B, T-1, V]
@@ -423,15 +498,81 @@ class GRPO:
             # save_16bit_model internally handles zero-3 gathering from all ranks
             self.policy_engine.save_16bit_model(output_dir)
 
-            # Barrier to ensure all ranks finished writing before rank 0 saves config
-            # Without this, rank 0 might save config before other ranks write their shards
+            # Barrier to ensure all ranks finished writing before rank 0 fixes state dict
             if torch.distributed.is_initialized():
                 torch.distributed.barrier()
 
-            # 2. Save config (required for vllm) on rank 0 ONLY
+            # 2. Fix state dict on rank 0 if using LoRA
+            # PEFT adds "base_model.model." prefix and wraps layers in "base_layer"
+            if rank == 0 and self.lora_config and self.lora_config.enabled:
+                checkpoint_files = glob.glob(os.path.join(output_dir, "*.bin")) + \
+                                  glob.glob(os.path.join(output_dir, "*.safetensors"))
+                
+                if checkpoint_files:
+                    print(f"[Alg:{self.alg_name}][Rank {rank}] Stripping PEFT prefixes and merging weights in {len(checkpoint_files)} files...")
+                    for ckpt_path in checkpoint_files:
+                        is_safetensors = ckpt_path.endswith(".safetensors")
+                        if is_safetensors:
+                            from safetensors.torch import load_file, save_file
+                            state_dict = load_file(ckpt_path)
+                        else:
+                            state_dict = torch.load(ckpt_path, map_location="cpu")
+                        
+                        # Identify base weights and lora weights
+                        new_state_dict = {}
+                        lora_weights = {}
+                        
+                        for k, v in state_dict.items():
+                            clean_k = k
+                            if clean_k.startswith("base_model.model."):
+                                clean_k = clean_k[len("base_model.model."):]
+                            
+                            if ".lora_A." in clean_k or ".lora_B." in clean_k:
+                                lora_weights[clean_k] = v
+                            elif ".base_layer." in clean_k:
+                                new_k = clean_k.replace(".base_layer.", ".")
+                                new_state_dict[new_k] = v
+                            else:
+                                new_state_dict[clean_k] = v
+                        
+                        # Manually merge LoRA weights into base weights if they exist in this shard
+                        for k in list(new_state_dict.keys()):
+                            prefix = k.rsplit(".", 1)[0]
+                            la = f"{prefix}.lora_A.default.weight"
+                            lb = f"{prefix}.lora_B.default.weight"
+                            if la in lora_weights and lb in lora_weights:
+                                alpha = self.lora_config.lora_alpha
+                                r = self.lora_config.r
+                                scaling = alpha / r
+                                
+                                la_w = lora_weights[la]
+                                lb_w = lora_weights[lb]
+                                base_w = new_state_dict[k]
+                                
+                                try:
+                                    delta = (lb_w @ la_w) * scaling
+                                    if delta.shape == base_w.shape:
+                                        print(f"  Merging LoRA for {k} (shape {base_w.shape})")
+                                        new_state_dict[k] = base_w + delta.to(base_w.dtype)
+                                    else:
+                                        print(f"  WARNING: Shape mismatch for {k}: delta {delta.shape} vs base {base_w.shape}")
+                                except Exception as e:
+                                    print(f"  WARNING: Failed to merge LoRA for {k}: {e}")
+
+                        if is_safetensors:
+                            save_file(new_state_dict, ckpt_path)
+                        else:
+                            torch.save(new_state_dict, ckpt_path)
+
+            # 3. Save config (required for vllm) on rank 0 ONLY
             if rank == 0:
-                if hasattr(self.policy_engine.module, 'config'):
-                    self.policy_engine.module.config.save_pretrained(output_dir)
+                # We need to save the base model config, not the PeftModel config
+                model_to_save = self.policy_engine.module
+                if hasattr(model_to_save, "get_base_model"):
+                    model_to_save = model_to_save.get_base_model()
+                
+                if hasattr(model_to_save, 'config'):
+                    model_to_save.config.save_pretrained(output_dir)
                     print(f"[Alg:{self.alg_name}][Rank {rank}] Config saved")
 
                 else:

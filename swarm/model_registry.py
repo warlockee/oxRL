@@ -185,9 +185,8 @@ def discover_models(
         models = api.list_models(
             pipeline_tag=_PIPELINE_TAG,
             sort="downloads",
-            direction=-1,
             limit=fetch_limit,
-            library="transformers",
+            filter="transformers",
         )
     except Exception as exc:
         logger.error("Failed to query HuggingFace Hub: %s", exc)

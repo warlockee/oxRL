@@ -1,0 +1,120 @@
+run:
+  experiment_id: qwen2-vl-2b-instruct_vision_dummy_056b3e
+  training_gpus: 1
+  rollout_gpus: 1
+  checkpoint_dir: /ceph/workspace/oxrl/ckps/qwen2-vl-2b-instruct_vision_dummy_056b3e
+  tracking_uri: http://localhost:5000
+  project_name: oxrl-exp
+  ray_address: null
+  ray_master_port: 29600
+  distributed_training_strategy: deepspeed-zero3
+  seed: 42
+lora:
+  enabled: false
+  r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  target_modules:
+  - q_proj
+  - v_proj
+  - k_proj
+  - o_proj
+  - gate_proj
+  - up_proj
+  - down_proj
+  bias: none
+  task_type: CAUSAL_LM
+train:
+  alg_name: sgrpo
+  optimizer_name: adamw
+  lr: 1.0e-06
+  adam_epsilon: 1.0e-08
+  betas:
+  - 0.9
+  - 0.95
+  weight_decay: 0.01
+  warmup_steps_ratio: 0.1
+  clip_grad_norm: 1.0
+  lr_scheduler: WarmupCosineLR
+  kl_coeff: 0.0
+  clip_low: -0.2
+  clip_high: 0.2
+  entropy_coeff: 0.0
+  update_after_full_replay: true
+  total_number_of_epochs: 1
+  train_steps_per_epoch: 1
+  dynamic_ratio_every_step: true
+  train_batch_size_per_gpu: 1
+  gradient_accumulation_steps: 8
+  val_batch_size_per_gpu: 16
+  normalize_loss: true
+model:
+  name: Qwen/Qwen2-VL-2B-Instruct
+  dtype: bfloat16
+  ref_model: ''
+  ref_model_offload_to_cpu: true
+  trust_remote_code: true
+  use_cache: false
+  model_class: llm
+  gradient_checkpointing: true
+  attn_implementation: eager
+data:
+  train_dnames:
+  - vision_dummy_qwen2-vl-2b-instruct_wsp_train
+  train_ratios:
+    vision_dummy_qwen2-vl-2b-instruct_wsp_train: 1.0
+  train_files_path: /ceph/workspace/oxrl/data/vision_dummy_qwen2-vl-2b-instruct_wsp_train_onboard.parquet
+  val_files_path: /ceph/workspace/oxrl/data/vision_dummy_qwen2-vl-2b-instruct_wsp_test.parquet
+  num_workers: 4
+  max_seq_len: 1024
+  prompt_key: prompt
+  answer_key: answer
+reward:
+  broadcast: false
+  eps_reward_norm: 1.0e-08
+  reward_func: gsm8k_reward_func
+rollout:
+  temperature: 1.0
+  max_tokens: 512
+  n_samples: 4
+  top_p: 1.0
+  top_k: -1
+  ignore_eos: false
+  stop: ''
+  gpu_memory_utilization: 0.4
+  stop_token_ids: []
+  prompt_logprobs: false
+  force_strict_on_policy: true
+  tensor_parallel_size: 1
+  rollout_batch_size_per_gpu: 32
+deepspeed:
+  zero_optimization:
+    stage: 3
+    stage3_param_persistence_threshold: 100000.0
+    stage3_prefetch_bucket_size: 50000000.0
+    offload_optimizer:
+      device: none
+      pin_memory: true
+    offload_param:
+      device: none
+      pin_memory: true
+    contiguous_gradients: true
+    overlap_comm: true
+    reduce_scatter: true
+    reduce_bucket_size: 500000000.0
+    allgather_bucket_size: 500000000.0
+    stage3_gather_16bit_weights_on_model_save: true
+  activation_checkpointing:
+    partition_activations: true
+    contiguous_memory_optimization: true
+  steps_per_print: 100
+  wall_clock_breakdown: false
+  flops_profiler:
+    enabled: false
+    profile_step: 10
+    module_depth: -1
+    top_modules: 1
+    detailed: true
+    output_file: null
+inference_engine:
+  name: vllm

@@ -41,7 +41,13 @@ def setup_ray(ray_address):
     if ray_address:
         ray.init(address=ray_address, ignore_reinit_error=True)
     else:
-        ray.init(ignore_reinit_error=True)
+        # Use a unique temp directory to avoid connecting to other clusters
+        import tempfile
+        import getpass
+        user = getpass.getuser()
+        ray_temp_dir = os.path.join("/tmp", f"ray_{user}_{int(time.time())}")
+        os.makedirs(ray_temp_dir, exist_ok=True)
+        ray.init(ignore_reinit_error=True, _temp_dir=ray_temp_dir)
 
     try:
         master_addr = ray.util.get_node_ip_address()
@@ -74,6 +80,7 @@ def training_engine_setup(params, alg, world_size, master_addr, master_port):
                # deepspeed related arguments
                'deepspeed_config':params.deepspeed,
                'deepspeed_ref_config':params.deepspeed_ref,
+               'lora_config': params.lora,
 
                # algorithm related arguments
                'loss_variant':params.train.alg_name.lower(),
@@ -158,7 +165,8 @@ def rollout_dataloader_setup(params, tokenizer, num_rollout_engines):
                                   tokenizer=tokenizer,
                                   data_path=params.data.train_files_path,
                                   return_text=False,
-                                  answer_key=params.data.answer_key)
+                                  answer_key=params.data.answer_key,
+                                  model_name=params.model.name)
 
     # since we split the data across the rollout engines
     bsz = num_rollout_engines * params.rollout.rollout_batch_size_per_gpu
@@ -334,8 +342,8 @@ def main(config_file, experiment_id, log_level="INFO"):
     # 7. initialize replay buffer
     ########
     logger.info("Initializing replay buffer...")
-    replay_buffer = ReplayBuffer(max_len=config.data.max_seq_len,
-                                 batch_size=config.rollout.rollout_batch_size_per_gpu)
+    replay_buffer = ReplayBuffer(pad_token_id=tokenizer.pad_token_id,
+                                 max_seq_len=config.data.max_seq_len)
 
     ########
     # 8. Training loop

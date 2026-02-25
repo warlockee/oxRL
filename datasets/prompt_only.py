@@ -13,6 +13,7 @@ class PromptOnlyDataset(Dataset):
                 data_path: str,
                 return_text: bool=False,
                 answer_key: str="",
+                model_name: str="",
                 ):
         assert prompt_key != "", "prompt_key cannot be empty"
         assert max_seq_len > 0, "max_seq_len must be > 0"
@@ -28,6 +29,15 @@ class PromptOnlyDataset(Dataset):
         self.data_path   = data_path
         self.return_text = return_text
         self.answer_key  = answer_key
+        
+        self.processor = None
+        if model_name:
+            try:
+                from transformers import AutoProcessor
+                self.processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
+            except Exception:
+                pass
+        
         self._load_data()
 
     def _load_data(self):
@@ -69,13 +79,49 @@ class PromptOnlyDataset(Dataset):
         # Some tokenizers (e.g. SmolLM2) return near-empty results with
         # tokenize=True but work correctly with tokenize=False + encode.
         # We try tokenize=True first; if that yields <= 2 tokens we fall back.
-        prompt_ids = self.tokenizer.apply_chat_template(
-                                        conversation=message,
-                                        add_generation_prompt=True,
-                                        tokenize=True,
-                                        return_tensors=None,
-                                        )
-        if not isinstance(prompt_ids, list) or len(prompt_ids) <= 2:
+        
+        # Use processor for multimodal if available
+        is_multimodal = ("image_base64" in sample or "audio_base64" in sample)
+        if self.processor and is_multimodal:
+            import base64
+            import io
+            from PIL import Image
+            import soundfile as sf
+            
+            # Deep copy or construct new message to avoid modifying cache
+            processed_message = []
+            for m in message:
+                new_content = []
+                if isinstance(m.get("content"), list):
+                    for part in m["content"]:
+                        if part.get("type") == "image" and "image_base64" in sample:
+                            img_data = base64.b64decode(sample["image_base64"])
+                            image = Image.open(io.BytesIO(img_data)).convert("RGB")
+                            new_content.append({"type": "image", "image": image})
+                        elif part.get("type") == "audio" and "audio_base64" in sample:
+                            audio_data_bytes = base64.b64decode(sample["audio_base64"])
+                            audio_data, sample_rate = sf.read(io.BytesIO(audio_data_bytes))
+                            new_content.append({"type": "audio", "audio": (audio_data, sample_rate)})
+                        else:
+                            new_content.append(part)
+                else:
+                    new_content = m.get("content")
+                processed_message.append({"role": m["role"], "content": new_content})
+
+            prompt_ids = self.processor.apply_chat_template(
+                processed_message,
+                add_generation_prompt=True,
+                tokenize=True,
+            )
+        else:
+            prompt_ids = self.tokenizer.apply_chat_template(
+                                            conversation=message,
+                                            add_generation_prompt=True,
+                                            tokenize=True,
+                                            return_tensors=None,
+                                            )
+        
+        if not is_multimodal and (not isinstance(prompt_ids, list) or len(prompt_ids) <= 2):
             # Fallback: render as text then encode
             prompt_text = self.tokenizer.apply_chat_template(
                                             conversation=message,
@@ -91,7 +137,15 @@ class PromptOnlyDataset(Dataset):
         if len(prompt_ids) >= self.max_seq_len:
             prompt_ids = prompt_ids[:self.max_seq_len - 1]
 
-        result = {"prompt_token_ids": prompt_ids}
+        result = {
+            "prompt_token_ids": prompt_ids,
+            "prompt_structured": message # Original list of dicts
+        }
+        
+        if "image_base64" in sample:
+            result["multi_modal_data"] = {"image": sample["image_base64"]}
+        elif "audio_base64" in sample:
+            result["multi_modal_data"] = {"audio": sample["audio_base64"]}
 
         # Pass answer through as metadata so reward functions can access it.
         # answer_key controls which parquet column to read; it always arrives
@@ -120,12 +174,12 @@ class PromptOnlyDataset(Dataset):
             This function keeps variable-length items as python objects
         '''
         if self.return_text == False:
-            # batch: List[List[int]]
+            # batch: List[List[int]] -> No, wait, __getitem__ returns a dict!
             return batch
 
         prompt_texts = []
         prompt_token_ids   = []
-
+        # If return_text is True we lose metadata and multi_modal_data, but let's assume return_text is False during training.
         for x in batch:
             prompt_token_ids.append(x["prompt_token_ids"])
             prompt_texts.append(x["text"])

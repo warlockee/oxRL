@@ -20,7 +20,10 @@ TASK_MAP = {
     "math-hard": {"reward_func": "math_reward_func",   "dataset": "math_hard"},
     "code":      {"reward_func": "code_reward_func",    "dataset": "mbpp"},
     "instruct":  {"reward_func": "format_reward_func",  "dataset": "ultrafeedback"},
-    "reasoning": {"reward_func": "math_reward_func",    "dataset": "math_hard"},
+    "reasoning": {"reward_func": "reasoning_reward_func", "dataset": "openr1_math"},
+    "vision":    {"reward_func": "gsm8k_reward_func",   "dataset": "vision_dummy"},
+    "audio":     {"reward_func": "gsm8k_reward_func",   "dataset": "audio_dummy"},
+    "openr1-math": {"reward_func": "reasoning_reward_func", "dataset": "openr1_math"},
 }
 
 # Task -> (max_seq_len, max_tokens)
@@ -29,7 +32,10 @@ TASK_SEQ = {
     "math-hard": {"max_seq_len": 512, "max_tokens": 512},
     "code":      {"max_seq_len": 1024, "max_tokens": 512},
     "instruct":  {"max_seq_len": 1024, "max_tokens": 512},
-    "reasoning": {"max_seq_len": 512, "max_tokens": 512},
+    "reasoning": {"max_seq_len": 1024, "max_tokens": 1024},
+    "vision":    {"max_seq_len": 1024, "max_tokens": 512},
+    "audio":     {"max_seq_len": 1024, "max_tokens": 512},
+    "openr1-math": {"max_seq_len": 1024, "max_tokens": 1024},
 }
 
 
@@ -87,16 +93,11 @@ def _batch_params(param_count_b: float) -> dict:
         }
 
 
-def _deepspeed_offload(param_count_b: float) -> dict:
+def _deepspeed_offload(param_count_b: float, use_lora: bool = False) -> dict:
     """Return offload_optimizer and offload_param device settings."""
-    if param_count_b <= 2.0:
+    if use_lora or param_count_b <= 7.0:
         return {
             "offload_optimizer": {"device": "none", "pin_memory": True},
-            "offload_param":     {"device": "none", "pin_memory": True},
-        }
-    elif param_count_b <= 7.0:
-        return {
-            "offload_optimizer": {"device": "cpu", "pin_memory": True},
             "offload_param":     {"device": "none", "pin_memory": True},
         }
     else:
@@ -165,8 +166,11 @@ def generate_config(
     if experiment_id is None:
         experiment_id = f"{model_slug}_{dataset}_{uuid.uuid4().hex[:6]}"
 
+    # Enable LoRA for 7B+ models to fit in memory
+    _use_lora = True if param_count_b >= 7.0 else False
+
     batch = _batch_params(param_count_b)
-    offload = _deepspeed_offload(param_count_b)
+    offload = _deepspeed_offload(param_count_b, use_lora=_use_lora)
     gpu_mem = _gpu_memory_utilization(param_count_b)
 
     # Build data name following existing convention:
@@ -194,8 +198,8 @@ def generate_config(
         train_data_path = full_train_path
 
     # Use 2+2 GPU layout for 7B+ models to avoid timeouts
-    _training_gpus = 2 if param_count_b >= 7.0 else 1
-    _rollout_gpus = 2 if param_count_b >= 7.0 else 1
+    _training_gpus = 2 if param_count_b >= 6.5 else 1
+    _rollout_gpus = 2 if param_count_b >= 6.5 else 1
 
     config = {
         # ------------------------------------------------------------------
@@ -213,6 +217,23 @@ def generate_config(
             "distributed_training_strategy": "deepspeed-zero3",
             "seed": 42,
         },
+
+        # ------------------------------------------------------------------
+        # lora
+        # ------------------------------------------------------------------
+        "lora": {
+            "enabled": _use_lora,
+            "r": 16,
+            "lora_alpha": 32,
+            "lora_dropout": 0.05,
+            "target_modules": ["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+            "bias": "none",
+            "task_type": "CAUSAL_LM",
+        },
+
+        # ------------------------------------------------------------------
+        # train
+        # ------------------------------------------------------------------
 
         # ------------------------------------------------------------------
         # train

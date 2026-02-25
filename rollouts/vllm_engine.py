@@ -272,7 +272,30 @@ class VLLMRolloutEngine:
 
                 # Strip metadata before passing to vLLM (it rejects unknown keys)
                 metadata_list = [p.get("metadata") for p in prompts]
-                vllm_prompts  = [{k: v for k, v in p.items() if k != "metadata"} for p in prompts]
+                
+                vllm_prompts = []
+                import base64
+                import io
+                import numpy as np
+                from PIL import Image
+                import soundfile as sf
+                for p in prompts:
+                    new_p = {k: v for k, v in p.items() if k not in ["metadata", "prompt_structured"]}
+                    if "prompt_structured" in p:
+                        new_p["prompt"] = p["prompt_structured"]
+                    
+                    if "multi_modal_data" in new_p:
+                        if "image" in new_p["multi_modal_data"]:
+                            img_str = new_p["multi_modal_data"]["image"]
+                            img_data = base64.b64decode(img_str)
+                            image = Image.open(io.BytesIO(img_data)).convert("RGB")
+                            new_p["multi_modal_data"] = {"image": image}
+                        elif "audio" in new_p["multi_modal_data"]:
+                            audio_str = new_p["multi_modal_data"]["audio"]
+                            audio_data_bytes = base64.b64decode(audio_str)
+                            audio_data, sample_rate = sf.read(io.BytesIO(audio_data_bytes))
+                            new_p["multi_modal_data"] = {"audio": (audio_data, sample_rate)}
+                    vllm_prompts.append(new_p)
 
                 self.log(f"Generating completions for {len(vllm_prompts)} prompts with {self.n_samples} samples each")
                 generated_outputs = self.vllm_engine.generate(vllm_prompts,

@@ -9,6 +9,16 @@
 <p align="center">A lightweight post-training framework for LLMs, VLMs, and VLAs. Maximizing developer speed. Scales to billions of parameters with DeepSpeed, vLLM, and Ray.</p>
 
 ---
+## 🚀 New in v1.1: Reasoning & Multimodal RL
+
+We've significantly expanded oxRL's capabilities to support the latest trending architectures and training recipes:
+
+*   **Verifiable Reasoning (Open-R1):** Native support for reasoning models with `<thought>` and `<answer>` tag enforcement and rule-based correctness rewards.
+*   **Multimodal RL:** Support for Vision-Language (VLM) and Audio-Language models. Seamless base64-to-tensor pipeline for on-policy rollouts.
+*   **Memory-Efficient LoRA:** Built-in PEFT integration allows post-training 8B+ models on restricted hardware (e.g. 2x A100-40GB) with automatic weight merging and prefix stripping.
+*   **Auto-Onboarding Swarm:** An intelligent orchestrator that auto-discovers, auto-preprocesses, and verifies models from Hugging Face Trending.
+
+---
 ## Usage (Python API)
 
 Post-train any model in under 10 lines of code. oxRL auto-detects your hardware and can auto-prepare common datasets.
@@ -16,29 +26,30 @@ Post-train any model in under 10 lines of code. oxRL auto-detects your hardware 
 ```python
 from oxrl import Trainer
 
-# 1. Initialize with your model
-trainer = Trainer(model="Qwen/Qwen2.5-0.5B-Instruct")
+# 1. Initialize with your model (LoRA enabled for 7B+)
+trainer = Trainer(model="deepseek-ai/DeepSeek-R1-Distill-Llama-8B")
 
-# 2. Start training (auto-downloads and preps dataset)
-trainer.train(dataset="gsm8k")
+# 2. Start reasoning post-training (Verifiable RL)
+trainer.train(task="openr1-math")
 ```
 
 ---
 
 ## Supported Models
 
-The following models have been verified and onboarded. You can find ready-to-use scripts in the `examples/onboarded_models/` directory.
+The following models have been verified and onboarded using our automated pipeline. You can find ready-to-use scripts in the `examples/onboarded_models/` directory.
 
-| Model | Params | Task | Dataset | GPU Setup |
-|-------|--------|------|---------|-----------|
-| **Qwen2.5-0.5B-Instruct** | 0.5B | Math | GSM8K | 1 Train + 1 Rollout |
-| **Qwen2.5-1.5B-Instruct** | 1.5B | Math | GSM8K | 1 Train + 1 Rollout |
-| **Qwen2.5-Coder-1.5B-Instruct** | 1.5B | Code | MBPP | 1 Train + 1 Rollout |
-| **SmolLM2-1.7B-Instruct** | 1.7B | Instruct | UltraFeedback | 1 Train + 1 Rollout |
-| **Qwen2.5-3B-Instruct** | 3.0B | Math | MATH | 1 Train + 1 Rollout |
-| **Qwen2.5-7B-Instruct** | 7.0B | Math | GSM8K | 2 Train + 2 Rollout |
-| **DeepSeek-R1-Distill-Qwen-7B** | 7.0B | Reasoning | MATH | 2 Train + 2 Rollout |
-| **Mistral-7B-Instruct-v0.3** | 7.0B | Instruct | UltraFeedback | 2 Train + 2 Rollout |
+| Model | Size | Task | Strategy | Status |
+|:---|:---|:---|:---|:---|
+| **DeepSeek-R1-Distill-Llama-8B** | 8.0B | Reasoning | LoRA | ✅ Verified |
+| **DeepSeek-R1-Distill-Qwen-7B** | 7.0B | Reasoning | LoRA | ✅ Verified |
+| **Qwen2.5-Coder-7B-Instruct** | 7.6B | Coding | LoRA | ✅ Verified |
+| **Qwen2-Audio-7B-Instruct** | 7.0B | Audio | LoRA | ✅ Verified |
+| **Qwen2-VL-7B-Instruct** | 7.0B | Vision | LoRA | ✅ Verified |
+| **Gemma-3-1b-it** | 1.0B | Multimodal | Full-tuning | ✅ Verified |
+| **Mistral-7B-Instruct-v0.3** | 7.0B | Instruct | LoRA | ✅ Verified |
+| **Qwen2.5-7B-Instruct** | 7.0B | Math | LoRA | ✅ Verified |
+| **SmolLM2-1.7B-Instruct** | 1.7B | Instruct | Full-tuning | ✅ Verified |
 
 ---
 
@@ -54,238 +65,81 @@ The following models have been verified and onboarded. You can find ready-to-use
 │                     │                   │                       │
 │  algs/grpo.py       │ rollouts/         │ configs/load.py       │
 │    SGRPO loss       │   vllm_engine.py  │ configs/*.yaml        │
-│    CISPO loss       │   replay_buffer.py│                       │
+│    LoRA / PEFT      │   replay_buffer.py│                       │
 │  algs/PPO/ppo.py    │                   │ datasets/             │
 │  algs/SFT/sft.py    │                   │   prompt_only.py      │
-│                     │                   │   prompt_response.py  │
-│                     │                   │   mixed_ratio_sampler │
+│                     │                   │   (Multimodal Ready)  │
 ├─────────────────────┴───────────────────┴───────────────────────┤
-│  utils/setup.py  │  utils/logging.py  │  rewards/compute_score  │
+│  swarm/             │  utils/logging.py  │  rewards/compute_score  │
+│    orchestrator.py  │  utils/setup.py    │  (Reasoning / Code)     │
 └──────────────────┴────────────────────┴─────────────────────────┘
 ```
 
 ## RL Training Workflow
 
-```
-┌──────────────┐     ┌───────────────────┐     ┌──────────────────┐
-│ Load Config  │────▶│  Initialize Ray   │────▶│ Create Engines   │
-│ (YAML file)  │     │  Cluster          │     │ N train + M roll │
-└──────────────┘     └───────────────────┘     └────────┬─────────┘
-                                                        │
-                     ┌──────────────────────────────────┘
-                     ▼
-          ┌─────────────────────┐
-          │   For each epoch:   │
-          │                     │
-          │  ┌───────────────┐  │    Rollout engines generate responses
-          │  │ 1. Rollouts   │  │    using vLLM, compute rewards,
-          │  │    (vLLM)     │  │    store in replay buffer
-          │  └───────┬───────┘  │
-          │          │          │
-          │  ┌───────▼───────┐  │    Training engines run forward/backward
-          │  │ 2. Train      │  │    with DeepSpeed ZeRO-3 across GPUs
-          │  │    (DeepSpeed)│  │
-          │  └───────┬───────┘  │
-          │          │          │
-          │  ┌───────▼───────┐  │    Save model, update rollout engines
-          │  │ 3. Checkpoint │  │    with new policy weights
-          │  │    + Refresh  │  │
-          │  └───────────────┘  │
-          └─────────────────────┘
-```
+1.  **Scout Agent:** Discovers model metadata and ensures `chat_template` compatibility.
+2.  **Multimodal Pipeline:** Converts base64 images/audio into PIL/NumPy for vLLM rollouts.
+3.  **LoRA Lifecycle:** Train with adapters, save with gathered ZeRO-3 weights, and **auto-strip PEFT prefixes** for immediate vLLM compatibility.
+4.  **Verifiable Rewards:** Programmatic verification of CoT tags and mathematical correctness.
 
 ## Quick Start
 
 ### Installation
 
-From PyPI (recommended):
 ```bash
 pip install oxrl
+pip install peft  # For LoRA support
 ```
 
-From source (for development):
-```bash
-git clone https://github.com/warlockee/oxRL.git
-cd oxRL
-pip install -e .
-```
-
-Dependencies: PyTorch, DeepSpeed, vLLM, Ray, Transformers, Pydantic.
-
----
-
-### Post-train a model in 3 steps (CLI)
-
-**Step 1.** Prepare your data as a parquet or JSONL file with chat-format prompts:
-
-```python
-{"prompt": [{"role": "user", "content": "What is 2+2?"}], "answer": "4"}
-```
-
-**Step 2.** Write a minimal config (everything else uses sensible defaults):
+### Post-train a Reasoning Model
 
 ```yaml
 # config.yaml
-run:
-  experiment_id: "my-run"
-  training_gpus: 2
-  rollout_gpus: 2
-
-train:
-  alg_name: "sgrpo"           # or "cispo"
-  total_number_of_epochs: 10
-  train_steps_per_epoch: 20
-
 model:
-  name: "google/gemma-3-1b-it" # any HuggingFace model
-
+  name: "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
+lora:
+  enabled: true
+reward:
+  reward_func: "reasoning_reward_func"
 data:
-  train_dnames: ["my_data"]
-  train_ratios: {"my_data": 1.0}
-  train_files_path: "./data/train.parquet"
-  val_files_path: "./data/val.parquet"
+  dataset: "openr1_math"
 ```
-
-**Step 3.** Run:
 
 ```bash
 python main_rl.py --config-file config.yaml
-```
-
-For supervised fine-tuning:
-
-```bash
-python main_sl.py --config-file configs/sl_args.yaml
-```
-
-See [`examples/quickstart.py`](examples/quickstart.py) for a complete runnable example.
-
-### Custom Reward Functions
-
-Write a function in `rewards/compute_score.py` and set `reward.reward_func` in your config:
-
-```python
-def my_reward(prompt_ids, response_ids, finish_reason):
-    r = torch.zeros(len(response_ids), dtype=torch.float32)
-    # your scoring logic here
-    r[-1] = 1.0 if meets_criteria(response_ids) else 0.0
-    return r, False  # (reward_tensor, is_per_token)
-```
-
-```yaml
-reward:
-  reward_func: "my_reward"
 ```
 
 ## Algorithms
 
 | Algorithm | File | Description |
 |-----------|------|-------------|
-| **SGRPO** | `algs/grpo.py` | Stable GRPO — clipped surrogate loss with optional KL regularization from reference model |
-| **CISPO** | `algs/grpo.py` | Clipped importance-sampling policy optimization — weighted log-probability loss |
-| **PPO** | `algs/PPO/ppo.py` | Proximal Policy Optimization with GAE, value clipping, entropy bonus |
-| **SFT** | `algs/SFT/sft.py` | Supervised fine-tuning with masked cross-entropy loss |
-
-SGRPO and CISPO share the same training infrastructure (DeepSpeed + Ray actors) and differ only in the policy loss computation. Select with `train.alg_name` in your config.
+| **SGRPO** | `algs/grpo.py` | Stable GRPO — Clipped surrogate loss with LoRA support and reference-free variants. |
+| **CISPO** | `algs/grpo.py` | Clipped importance-sampling policy optimization. |
+| **PPO** | `algs/PPO/ppo.py` | Proximal Policy Optimization with GAE and value clipping. |
 
 ## Project Structure
 
 ```
 oxRL/
 ├── main_rl.py              RL training loop (Ray + DeepSpeed)
-├── main_sl.py              SL training loop (DeepSpeed)
-├── algs/
-│   ├── grpo.py             SGRPO + CISPO (unified, loss_variant selects)
-│   ├── PPO/ppo.py          PPO with GAE + value function
-│   └── SFT/sft.py          Supervised fine-tuning
-├── configs/
-│   ├── load.py             Pydantic config with sensible defaults
-│   ├── rl_args.yaml        Full RL config example
-│   └── sl_args.yaml        Full SL config example
-├── datasets/
-│   ├── prompt_only.py      RL prompts (chat format → tokens)
-│   ├── prompt_response.py  SL prompt-response pairs
-│   └── mixed_ratio_sampler Multi-dataset weighted sampling
-├── rollouts/
-│   ├── vllm_engine.py      vLLM inference with hot model refresh
-│   └── replay_buffer.py    On-policy sample storage
-├── rewards/
-│   └── compute_score.py    Pluggable reward functions
-├── utils/
-│   ├── setup.py            Distributed setup (seeds, rank, tokenizer)
-│   ├── logging.py          Rank-aware logging + MLflow
-│   └── utils.py            Tensor helpers (dtype, padding)
-├── preprocessing/
-│   └── gsm8k.py            GSM8K dataset preparation
-└── examples/
-    └── quickstart.py       End-to-end example (48 lines)
+├── swarm/                  Autonomous model onboarding (Scout, Bugfixer)
+├── preprocessing/          Reasoning (OpenR1), Multimodal (Vision/Audio) preprocessors
+├── rollouts/               vLLM inference with structured prompt support
+├── rewards/                Verifiable reasoning and coding rewards
 ```
 
-## Configuration
+## design-principles
 
-oxRL uses Pydantic for type-safe configuration. Every field has a sensible default — you only need to specify what's unique to your run.
+**Debuggability over Pipelining.** oxRL avoids complex async pipelining to ensure that failure states are 100% reproducible and logs are clear.
 
-**Required fields** (no defaults):
+**LoRA-first for 7B+**. We default to LoRA for larger models to enable high-quality research on consumer-grade and restricted high-end hardware.
 
-| Section | Field | Description |
-|---------|-------|-------------|
-| `run` | `experiment_id` | Name for this run |
-| `run` | `training_gpus` | Number of GPUs for training |
-| `run` | `rollout_gpus` | Number of GPUs for rollout generation |
-| `train` | `alg_name` | Algorithm: `sgrpo`, `cispo`, `sft` |
-| `train` | `total_number_of_epochs` | Training epochs |
-| `train` | `train_steps_per_epoch` | Optimizer steps per epoch (RL) |
-| `model` | `name` | HuggingFace model ID |
-| `data` | `train_dnames` | Dataset name list |
-| `data` | `train_ratios` | Dataset mixing ratios |
-| `data` | `train_files_path` | Path to training data |
-| `data` | `val_files_path` | Path to validation data |
-
-Everything else (optimizer, scheduler, DeepSpeed ZeRO-3, vLLM rollouts, reward function) defaults to production-tested values. See [`configs/rl_args.yaml`](configs/rl_args.yaml) for the full reference.
-
-## Experiment Tracking
-
-MLflow is supported but **optional**. oxRL works out of the box without it — training runs fine, you just won't get experiment tracking.
-
-**Without MLflow** (default): training logs to console only. Nothing to configure.
-
-**With MLflow**: install it and set the tracking URI in your config:
-
-```bash
-pip install mlflow
-```
-
-```yaml
-run:
-  tracking_uri: "http://localhost:5000"  # or your MLflow server
-```
-
-Start a local MLflow UI:
-
-```bash
-mlflow ui --port 5000
-```
-
-oxRL automatically logs hyperparameters, per-step losses, KL divergence, clip fractions, rewards, and epoch-level aggregates to MLflow.
-
-## Key Design Decisions
-
-**Sequential rollout → training.** oxRL does not pipeline rollout generation with training. This is deliberate. Pipelined overlap improves GPU utilization but makes debugging significantly harder. When training diverges at step 4,000, you want to know exactly what happened.
-
-**One class for SGRPO and CISPO.** Both algorithms share 99% of their code — the only difference is 4 lines in the policy loss computation. A `loss_variant` parameter selects between them. No inheritance, no abstraction.
-
-**DeepSpeed ZeRO-3 by default.** The config system auto-syncs optimizer, scheduler, dtype, and batch size settings to DeepSpeed — you configure once in the YAML and oxRL handles the rest.
-
-**Strict on-policy enforcement.** Optional mode that validates rollouts were generated by the current policy version. Catches silent distribution shift bugs that waste GPU-days.
+**Verification-driven RL.** We prioritize datasets where the reward is verifiable (Math, Code, Format) to drive logical discovery.
 
 ## Contributing
 
-Contributions are welcome. The bar: keep changes readable, testable, and debuggable. Follow the existing style. If your change adds complexity, it should be worth it.
+Contributions are welcome. Please follow the existing architectural patterns and style.
 
 ## FAQ
 
-Check out the [FAQ](FAQ.md) for common questions and answers.
-
-## Acknowledgments
-
-Some components of this codebase are inspired by practices from open source projects. We try to cite sources wherever we directly reuse exact code. If we missed a citation, please let us know and we will credit the source.
+Check out the [FAQ](FAQ.md) for details on LoRA merging and Multimodal input formatting.
