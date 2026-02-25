@@ -22,16 +22,16 @@ We've significantly expanded oxRL's capabilities to support the latest trending 
 ---
 ## Usage (Python API)
 
-Post-train any model in under 10 lines of code. oxRL auto-detects your hardware and can auto-prepare common datasets.
+Post-train any model in under 10 lines of code. oxRL auto-detects your hardware, auto-prepares datasets, and scales to multi-GPU automatically.
 
 ```python
 from oxrl import Trainer
 
-# 1. Initialize with your model (LoRA enabled for 7B+)
+# 1. Initialize with any HuggingFace model
 trainer = Trainer(model="deepseek-ai/DeepSeek-R1-Distill-Llama-8B")
 
-# 2. Start reasoning post-training (Verifiable RL)
-trainer.train(task="openr1-math")
+# 2. Start reasoning post-training (Open-R1 recipe)
+trainer.train(task="reasoning")
 ```
 
 ---

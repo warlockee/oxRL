@@ -4,134 +4,112 @@ import yaml
 import subprocess
 import torch
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any, Dict
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent.parent.absolute()
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from swarm.config_generator import generate_config, save_config
+
 class Trainer:
     """
     oxRL High-level Trainer for minimal configuration.
     
+    Fulfils the promise: "Post-train any model under 10 lines of code."
+    
     Example:
-        trainer = Trainer(model="google/gemma-3-1b-it")
-        trainer.train(dataset="gsm8k") # Auto-downloads, preps, and trains
+        from oxrl import Trainer
+        trainer = Trainer(model="Qwen/Qwen2.5-0.5B-Instruct")
+        trainer.train(task="math") 
     """
     def __init__(self, model: str, experiment_id: Optional[str] = None):
         self.model = model
-        self.model_slug = model.split("/")[-1].lower()
-        self.experiment_id = experiment_id or f"run_{self.model_slug}"
+        self.experiment_id = experiment_id
         
-    def _detect_gpus(self) -> int:
-        """Detect number of available GPUs."""
-        if torch.cuda.is_available():
-            return torch.cuda.device_count()
-        return 0
-
-    def _prepare_dataset(self, dataset_name: str) -> tuple[str, str]:
-        """Auto-prepare dataset using preprocessing scripts."""
-        data_dir = PROJECT_ROOT / "data"
-        data_dir.mkdir(exist_ok=True)
+    def _get_param_count(self) -> float:
+        """Estimate param count from model string if possible, or use a safe default."""
+        import re
+        # Try to find numbers followed by B or b
+        match = re.search(r"(\d+\.?\d*)[Bb]", self.model)
+        if match:
+            return float(match.group(1))
         
-        train_file = data_dir / f"{dataset_name}_{self.model_slug}_wsp_train.parquet"
-        test_file = data_dir / f"{dataset_name}_{self.model_slug}_wsp_test.parquet"
-        
-        if train_file.exists() and test_file.exists():
-            print(f"[oxRL] Dataset {dataset_name} already prepared at {train_file}")
-            return str(train_file), str(test_file)
-            
-        script_map = {
-            "gsm8k": "preprocessing/gsm8k.py",
-            "math_hard": "preprocessing/math_hard.py",
-            "mbpp": "preprocessing/mbpp.py",
-            "ultrafeedback": "preprocessing/ultrafeedback.py",
-        }
-        
-        if dataset_name not in script_map:
-            raise ValueError(f"Unknown dataset '{dataset_name}'. Supported: {list(script_map.keys())}")
-            
-        script_path = PROJECT_ROOT / script_map[dataset_name]
-        print(f"[oxRL] Preparing dataset {dataset_name}...")
-        
-        cmd = [
-            sys.executable, str(script_path),
-            "--local_dir", str(data_dir),
-            "--run_id", self.model_slug
-        ]
-        
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            print(f"[oxRL] Preprocessing failed:\n{result.stderr}")
-            raise RuntimeError(f"Failed to prepare dataset {dataset_name}")
-            
-        return str(train_file), str(test_file)
+        # Default to 7B for safety (will trigger LoRA and 2+2 GPU)
+        return 7.0
 
     def train(self, 
+              task: str = "math",
               dataset: Optional[str] = None,
-              train_file: Optional[str] = None, 
-              val_file: Optional[str] = None, 
-              training_gpus: Optional[int] = None, 
-              rollout_gpus: Optional[int] = None,
-              alg: str = "sgrpo",
-              epochs: int = 3,
+              epochs: int = 1,
               steps_per_epoch: int = 10,
-              batch_size: int = 2):
-        """Run RL training with simplified parameters."""
+              **kwargs):
+        """
+        Run RL training with minimal boilerplate.
         
-        # 1. Hardware Detection
-        available_gpus = self._detect_gpus()
-        if training_gpus is None:
-            training_gpus = max(1, available_gpus // 2)
-        if rollout_gpus is None:
-            rollout_gpus = max(1, available_gpus - training_gpus)
-            
-        print(f"[oxRL] Using {training_gpus} training GPUs and {rollout_gpus} rollout GPUs (Total: {available_gpus})")
-
-        # 2. Data Preparation
+        Args:
+            task: Task type ('math', 'reasoning', 'code', 'instruct', 'vision', 'audio')
+            dataset: Optional dataset name override
+            epochs: Number of training epochs
+            steps_per_epoch: Number of optimizer steps per epoch
+            **kwargs: Config overrides (e.g. lora_enabled=True, lr=1e-5)
+        """
+        params_b = self._get_param_count()
+        
+        # 1. Auto-generate config using the Swarm logic
+        config_dict = generate_config(
+            model_name=self.model,
+            task=task,
+            param_count_b=params_b,
+            experiment_id=self.experiment_id
+        )
+        
+        # 2. Apply overrides
         if dataset:
-            train_path, val_path = self._prepare_dataset(dataset)
-        elif train_file:
-            train_path = str(Path(train_file).absolute())
-            val_path = str(Path(val_file or train_file).absolute())
-        else:
-            raise ValueError("Either 'dataset' name or 'train_file' path must be provided.")
-
-        # 3. Prepare minimal config
-        config = {
-            "run": {
-                "experiment_id": self.experiment_id,
-                "training_gpus": training_gpus,
-                "rollout_gpus": rollout_gpus,
-            },
-            "train": {
-                "alg_name": alg,
-                "total_number_of_epochs": epochs,
-                "train_steps_per_epoch": steps_per_epoch,
-                "train_batch_size_per_gpu": batch_size,
-            },
-            "model": {
-                "name": self.model,
-            },
-            "data": {
-                "train_dnames": ["custom_data"],
-                "train_ratios": {"custom_data": 1.0},
-                "train_files_path": train_path,
-                "val_files_path": val_path,
-            },
-        }
+            # We assume the user has preprocessed this dataset if it is custom
+            config_dict["data"]["train_dnames"] = [dataset]
+            config_dict["data"]["train_ratios"] = {dataset: 1.0}
+            
+        config_dict["train"]["total_number_of_epochs"] = epochs
+        config_dict["train"]["train_steps_per_epoch"] = steps_per_epoch
         
-        # 4. Save config to a temporary location
-        config_dir = PROJECT_ROOT / "onboarded" / self.experiment_id
+        # Merge other kwargs into flat sections if they match keys
+        for key, val in kwargs.items():
+            found = False
+            for section in ["train", "run", "model", "rollout", "lora"]:
+                if section in config_dict and key in config_dict[section]:
+                    config_dict[section][key] = val
+                    found = True
+                    break
+            if not found:
+                # Add to train by default or keep as is
+                config_dict["train"][key] = val
+
+        # 3. Save config
+        config_dir = PROJECT_ROOT / "onboarded" / config_dict["run"]["experiment_id"]
         config_dir.mkdir(parents=True, exist_ok=True)
         config_path = config_dir / "config.yaml"
         
-        with open(config_path, "w") as f:
-            yaml.dump(config, f, default_flow_style=False)
-            
-        print(f"[oxRL] Config generated: {config_path}")
+        save_config(config_dict, str(config_path))
+        print(f"[oxRL] Starting training for {self.model} on task '{task}'")
+        print(f"[oxRL] Config: {config_path}")
+
+        # 4. Launch Training
+        # We use subprocess to ensure clean environment and Ray isolation
+        cmd = [
+            sys.executable,
+            str(PROJECT_ROOT / "main_rl.py"),
+            "--config-file", str(config_path),
+            "--experiment_id", config_dict["run"]["experiment_id"]
+        ]
         
-        # 5. Call main_rl.main()
-        from main_rl import main as run_rl
-        run_rl(config_file=str(config_path), experiment_id=self.experiment_id)
+        # Propagate environment variables (HF tokens, etc.)
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(PROJECT_ROOT)
+        
+        try:
+            subprocess.run(cmd, check=True, env=env)
+        except subprocess.CalledProcessError as e:
+            print(f"[oxRL] Training failed with exit code {e.returncode}")
+            raise

@@ -310,8 +310,15 @@ class Config(BaseModel):
                 else:
                     if self.train.train_steps_per_epoch is None:
                         raise ValueError("train_steps_per_epoch must be set for RL training")
-                    optimizer_steps_per_epoch = self.train.train_steps_per_epoch
-
+                    
+                    # In RL, we iterate number_of_training_steps_per_epoch times.
+                    # Each time, we process the whole replay buffer shard.
+                    # We need to estimate the number of batches per engine.
+                    # This is approximate as the buffer size might vary, but 
+                    # for WarmupCosineLR it just needs to be large enough to not div-by-zero.
+                    # We assume at least 1 step per engine per outer loop.
+                    optimizer_steps_per_epoch = self.train.train_steps_per_epoch * 100 # Safe over-estimate for onboarding
+                    
                 total_optimizer_steps = self.train.total_number_of_epochs * optimizer_steps_per_epoch
                 warmup_steps = int(total_optimizer_steps * self.train.warmup_steps_ratio)
 
