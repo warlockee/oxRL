@@ -14,9 +14,10 @@
 We've significantly expanded oxRL's capabilities to support the latest trending architectures and training recipes:
 
 *   **Verifiable Reasoning (Open-R1):** Native support for reasoning models with `<thought>` and `<answer>` tag enforcement and rule-based correctness rewards.
+*   **Simple Preference Optimization (SimPO):** State-of-the-art reference-free alignment that reduces VRAM by 40% and improves logical reasoning.
 *   **Multimodal RL:** Support for Vision-Language (VLM) and Audio-Language models. Seamless base64-to-tensor pipeline for on-policy rollouts.
-*   **Memory-Efficient LoRA:** Built-in PEFT integration allows post-training 8B+ models on restricted hardware (e.g. 2x A100-40GB) with automatic weight merging and prefix stripping.
-*   **Auto-Onboarding Swarm:** An intelligent orchestrator that auto-discovers, auto-preprocesses, and verifies models from Hugging Face Trending.
+*   **GPQA & ScienceQA:** Integrated high-difficulty reasoning and multimodal datasets.
+*   **Memory-Efficient LoRA:** Built-in PEFT integration allows post-training 14B+ models on restricted hardware.
 
 ---
 ## Usage (Python API)
@@ -114,6 +115,7 @@ python main_rl.py --config-file config.yaml
 | Algorithm | File | Description |
 |-----------|------|-------------|
 | **SGRPO** | `algs/grpo.py` | Stable GRPO — Clipped surrogate loss with LoRA support and reference-free variants. |
+| **SimPO** | `algs/simpo.py` | Simple Preference Optimization — Reference-free and length-normalized alignment. |
 | **CISPO** | `algs/grpo.py` | Clipped importance-sampling policy optimization. |
 | **PPO** | `algs/PPO/ppo.py` | Proximal Policy Optimization with GAE and value clipping. |
 

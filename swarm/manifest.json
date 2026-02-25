@@ -145,13 +145,13 @@
       "onboarded_at": "2026-02-24T10:38:58.705410+00:00"
     },
     "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B": {
-      "status": "onboarded",
+      "status": "queued",
       "hf_downloads": 730950,
       "param_count_b": 7.62,
       "tasks": [
-        "openr1-math"
+        "reasoning"
       ],
-      "dataset": "openr1_math",
+      "dataset": "gpqa",
       "reward_func": "reasoning_reward_func",
       "gpu_allocation": "1train+1rollout",
       "config_path": "/ceph/workspace/erik/oxRL/onboarded/deepseek-r1-distill-qwen-7b/config.yaml",
@@ -296,6 +296,37 @@
       ],
       "dataset": "vision_dummy",
       "reward_func": "gsm8k_reward_func",
+      "gpu_allocation": "2train+2rollout",
+      "attempts": 1,
+      "tier": 3,
+      "onboarded_at": null,
+      "error_log": "Bugfixer error: Config file not found for patching: None",
+      "hf_downloads": null
+    },
+    "microsoft/phi-4": {
+      "status": "queued",
+      "param_count_b": 14.7,
+      "tasks": [
+        "math"
+      ],
+      "dataset": "gsm8k",
+      "reward_func": "gsm8k_reward_func",
+      "gpu_allocation": "2train+2rollout",
+      "attempts": 2,
+      "tier": 0,
+      "onboarded_at": null,
+      "config_path": "/ceph/workspace/erik/oxRL/onboarded/phi-4/config.yaml",
+      "error_log": "Auto-fix applied: OOM -- reducing batch sizes or enabling CPU offload.",
+      "hf_downloads": 672714
+    },
+    "mistralai/Mistral-Nemo-Instruct-v1": {
+      "status": "skipped",
+      "param_count_b": 12.2,
+      "tasks": [
+        "instruct"
+      ],
+      "dataset": "ultrafeedback",
+      "reward_func": "format_reward_func",
       "gpu_allocation": "2train+2rollout",
       "attempts": 1,
       "tier": 3,
