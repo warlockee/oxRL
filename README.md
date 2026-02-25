@@ -89,7 +89,6 @@ The following models have been verified and onboarded using our automated pipeli
 
 ```bash
 pip install oxrl
-pip install peft  # For LoRA support
 ```
 
 ### Post-train a Reasoning Model
