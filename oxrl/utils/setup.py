@@ -4,6 +4,17 @@ import numpy as np
 import torch
 from transformers import AutoTokenizer
 
+# Monkey-patch missing SlidingWindowCache for Phi-4-mini compatibility
+try:
+    from transformers.cache_utils import SlidingWindowCache  # noqa: F401
+except ImportError:
+    from transformers.cache_utils import DynamicCache as _DynCache
+    import transformers.cache_utils as _cu
+    class SlidingWindowCache(_DynCache):
+        """Stub for models that import SlidingWindowCache (e.g. Phi-4-mini)."""
+        pass
+    _cu.SlidingWindowCache = SlidingWindowCache
+
 def set_random_seeds(seed):
     '''
         Set random seeds to make runs more reproducible (still not guaranteed). With distributed training,

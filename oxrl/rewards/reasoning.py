@@ -12,9 +12,16 @@ def reasoning_reward_func(prompt_ids: List[int], response_ids: List[int], finish
     response_text = metadata.get("response_text", "")
     ground_truth = metadata.get("answer", "")
     score = 0.0
-    if "<thought>" in response_text and "</thought>" in response_text:
+    
+    # Check for thought process (flexible tags)
+    has_thought = ("<thought>" in response_text and "</thought>" in response_text) or \
+                  ("<think>" in response_text and "</think>" in response_text)
+    if has_thought:
         score += 0.2
-    if "<answer>" in response_text and "</answer>" in response_text:
+        
+    # Check for answer formatting (flexible tags)
+    has_answer = ("<answer>" in response_text and "</answer>" in response_text)
+    if has_answer:
         score += 0.2
         match = re.search(r"<answer>(.*?)</answer>", response_text, re.DOTALL)
         if match:

@@ -7,17 +7,6 @@ import glob
 from typing import Any
 from transformers import AutoModelForCausalLM, AutoModelForImageTextToText, AutoConfig
 
-# Monkey-patch missing SlidingWindowCache for Phi-4-mini compatibility
-try:
-    from transformers.cache_utils import SlidingWindowCache  # noqa: F401
-except ImportError:
-    from transformers.cache_utils import DynamicCache as _DynCache
-    import transformers.cache_utils as _cu
-    class SlidingWindowCache(_DynCache):
-        """Stub for models that import SlidingWindowCache (e.g. Phi-4-mini)."""
-        pass
-    _cu.SlidingWindowCache = SlidingWindowCache
-
 from oxrl.utils.setup import load_model_and_ref
 from oxrl.algs.base import BaseAlgorithm
 

@@ -1,0 +1,15 @@
+{
+  "model_id": "Qwen/Qwen3-0.6B",
+  "model_slug": "qwen3-0.6b",
+  "status": "onboarded",
+  "config_path": "/ceph/workspace/erik/oxRL/registry/qwen3-0.6b/config.yaml",
+  "param_count_b": 0.75,
+  "tier": 1,
+  "reward_first": 0.8256,
+  "reward_final": 0.8256,
+  "reward_improvement": 0.0,
+  "reward_values": [
+    0.8256
+  ],
+  "onboarded_at": "2026-02-26T16:17:44.392152+00:00"
+}

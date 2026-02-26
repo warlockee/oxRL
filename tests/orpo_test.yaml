@@ -1,0 +1,51 @@
+run:
+  experiment_id: orpo_test_run
+  distributed_training_strategy: deepspeed-zero3
+  seed: 42
+  project_name: oxrl-test
+  tracking_uri: ""
+  checkpoint_dir: /tmp/orpo_test_ckpts
+
+train:
+  alg_name: orpo
+  optimizer_name: adamw
+  lr: 1.0e-6
+  beta: 0.1
+  total_number_of_epochs: 1
+  micro_batches_per_epoch: 2
+  train_batch_size_per_gpu: 1
+  gradient_accumulation_steps: 1
+  val_batch_size_per_gpu: 1
+
+model:
+  name: "google/gemma-2-2b-it" # Small model for quick loading
+  dtype: bfloat16
+  ref_model: "" # ORPO does not require a reference model
+  trust_remote_code: true
+  use_cache: false
+  gradient_checkpointing: true
+  attn_implementation: "eager"
+
+data:
+  train_dnames: ["dummy_preference"]
+  train_ratios: 
+    dummy_preference: 1.0
+  train_files_path: ./tests/data/dummy_preference.parquet
+  val_files_path: ./tests/data/dummy_preference.parquet
+  num_workers: 0
+  max_seq_len: 256
+  prompt_key: "prompt"
+  chosen_key: "chosen"
+  rejected_key: "rejected"
+
+deepspeed:
+  zero_optimization:
+    stage: 2
+    offload_optimizer:
+      device: "cpu"
+      pin_memory: true
+  flops_profiler:
+    enabled: false
+
+lora:
+  enabled: false

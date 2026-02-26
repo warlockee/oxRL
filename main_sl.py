@@ -15,16 +15,25 @@ import time
 import oxrl.configs.load as cfg# all config arguments
 # Import local datasets module directly from file to avoid conflict with HuggingFace 'datasets' package
 import importlib.util as _ilu
-_spec = _ilu.spec_from_file_location("_prompt_response", os.path.join(os.path.dirname(__file__), "oxrl", "datasets", "prompt_response.py"))
-_mod = _ilu.module_from_spec(_spec)
-_spec.loader.exec_module(_mod)
-PromptResponseDataset = _mod.PromptResponseDataset
+_spec_pr = _ilu.spec_from_file_location("_prompt_response", os.path.join(os.path.dirname(__file__), "oxrl", "datasets", "prompt_response.py"))
+_mod_pr = _ilu.module_from_spec(_spec_pr)
+_spec_pr.loader.exec_module(_mod_pr)
+PromptResponseDataset = _mod_pr.PromptResponseDataset
+
+_spec_pp = _ilu.spec_from_file_location("_prompt_preference", os.path.join(os.path.dirname(__file__), "oxrl", "datasets", "prompt_preference.py"))
+_mod_pp = _ilu.module_from_spec(_spec_pp)
+_spec_pp.loader.exec_module(_mod_pp)
+PromptPreferenceDataset = _mod_pp.PromptPreferenceDataset
+
 from oxrl.utils.utils import safe_string_to_torch_dtype, get_experiment_dir_name
 from oxrl.utils.logging import setup_logging, setup_mlflow, log_metrics, end_run
 from oxrl.utils.setup import set_random_seeds, get_distributed_info, load_tokenizer, load_model_and_ref
 from oxrl.algs.sft import SFT
+from oxrl.algs.dpo import DPO
+from oxrl.algs.orpo import ORPO
+from oxrl.algs.kto import KTO
 
-SL_ALGORITHMS = {"sft": SFT}
+SL_ALGORITHMS = {"sft": SFT, "dpo": DPO, "orpo": ORPO, "kto": KTO}
 
 def load_models_and_tokenizer(model_name, model_dtype, ref_model_name, trust_remote_code, attn_impl, rank):
     '''
@@ -61,9 +70,11 @@ def training_engine_setup(deepspeed_config, model, ref_model=None):
         deepspeed.init_distributed()
 
     # 2. Initialize model engine
+    # Filter for trainable parameters (crucial for LoRA)
+    trainable_params = [p for p in model.parameters() if p.requires_grad]
     model_engine, optimizer, _, _ = deepspeed.initialize(
                                                         model=model,
-                                                        model_parameters=model.parameters(),
+                                                        model_parameters=trainable_params,
                                                         config=ds_config_dict
                                                         )
     ref_model_engine = None
@@ -77,9 +88,16 @@ def training_engine_setup(deepspeed_config, model, ref_model=None):
 
         except Exception:
             # fallback: initialize with DeepSpeed
+            # Use a minimal config for ref model
+            ref_ds_config = {
+                "train_micro_batch_size_per_gpu": ds_config_dict.get("train_micro_batch_size_per_gpu"),
+                "bf16": ds_config_dict.get("bf16"),
+                "fp16": ds_config_dict.get("fp16"),
+                "zero_optimization": ds_config_dict.get("zero_optimization"),
+            }
             ref_model_engine, _, _, _ = deepspeed.initialize(
                                                     model=ref_model,
-                                                    config=ds_config_dict
+                                                    config=ref_ds_config
                                                     )
 
     return model_engine, ref_model_engine, optimizer
@@ -87,17 +105,24 @@ def training_engine_setup(deepspeed_config, model, ref_model=None):
 def data_loader_setup(params, tokenizer, rank, world_size, batch_size, split):
     '''
        Setup DataLoader for distributed training.
-       Notes:
-           - batch_size is the per-gpu-micro-batch size. Global batch size = batch_size * world_size * gradient_accumulation_steps.
-           - Sampler is DistributedSampler; caller must call sampler.set_epoch(epoch) each epoch.
     '''
     # 1. Initialize our custom datasets
     data_path = params.data.train_files_path if split == 'train' else params.data.val_files_path
-    dataset = PromptResponseDataset(prompt_key=params.data.prompt_key,
-                                    answer_key=params.data.answer_key,
-                                    max_seq_len=params.data.max_seq_len,
-                                    tokenizer=tokenizer,
-                                    data_path=data_path)
+    
+    alg_name = params.train.alg_name.lower()
+    if alg_name in ["dpo", "orpo", "kto"]:
+        dataset = PromptPreferenceDataset(prompt_key=params.data.prompt_key,
+                                          chosen_key=params.data.chosen_key,
+                                          rejected_key=params.data.rejected_key,
+                                          max_seq_len=params.data.max_seq_len,
+                                          tokenizer=tokenizer,
+                                          data_path=data_path)
+    else:
+        dataset = PromptResponseDataset(prompt_key=params.data.prompt_key,
+                                        answer_key=params.data.answer_key,
+                                        max_seq_len=params.data.max_seq_len,
+                                        tokenizer=tokenizer,
+                                        data_path=data_path)
 
     shuffle = True if split == 'train' else False
     drop_last = True if split == 'train' else False
@@ -110,7 +135,6 @@ def data_loader_setup(params, tokenizer, rank, world_size, batch_size, split):
 
     # 3. Initialize data loader
     def worker_init_fn(worker_id):
-        # each worker gets a different seed but deterministic across runs when seed fixed
         worker_seed = params.run.seed + worker_id + (rank * 100000)
         np.random.seed(worker_seed)
         random.seed(worker_seed)
@@ -122,7 +146,7 @@ def data_loader_setup(params, tokenizer, rank, world_size, batch_size, split):
                             num_workers=params.data.num_workers,
                             pin_memory=True,
                             drop_last=drop_last,
-                            worker_init_fn=worker_init_fn # for reproducibility
+                            worker_init_fn=worker_init_fn
                             )
 
     return dataloader, sampler
@@ -194,17 +218,35 @@ if __name__ == "__main__":
                                           rank=rank)
 
     ########
-    # 7. Intitate the learning algorithm (e.g., ppo)
+    # 7. Intitate the learning algorithm
     ########
     alg_name = config.train.alg_name.lower()
     if alg_name not in SL_ALGORITHMS:
         raise ValueError(f"Unknown algorithm: {alg_name}. Available: {list(SL_ALGORITHMS)}")
     alg_cls = SL_ALGORITHMS[alg_name]
 
-    alg = alg_cls(model_engine=model_engine,
-                   optimizer=optimizer,
-                   use_cache=config.model.use_cache,
-                   normalize_loss=config.train.normalize_loss)
+    if alg_name == "sft":
+        alg = alg_cls(model_engine=model_engine,
+                       optimizer=optimizer,
+                       use_cache=config.model.use_cache,
+                       normalize_loss=config.train.normalize_loss)
+    elif alg_name == "dpo":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "orpo":
+        alg = alg_cls(model_engine=model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "kto":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       use_cache=config.model.use_cache)
 
     ########
     # 8. Training and evaluation loop

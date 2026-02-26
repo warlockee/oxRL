@@ -63,9 +63,8 @@ class Train(BaseModel):
     # Optimizer steps = micro_batches_per_epoch // gradient_accumulation_steps
     micro_batches_per_epoch: int | None = None
 
-    dynamic_ratio_every_step: bool = True
-
-    ###############
+    # Preference optimization arguments
+    beta: float = 0.1
     # Arguments which are common to both deepspeed and standalone training.
     ###############
     # Some of the below arguments also can be set in deepspeed config. However to avoid any confusion and increase code readability,
@@ -91,6 +90,8 @@ class Data(BaseModel):
     max_seq_len: int = 512
     prompt_key: str = "prompt"
     answer_key: str = "answer"
+    chosen_key: str = "chosen"
+    rejected_key: str = "rejected"
 
 class Model(BaseModel):
     '''

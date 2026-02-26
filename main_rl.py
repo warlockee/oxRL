@@ -8,17 +8,6 @@ from tqdm import tqdm
 import ray
 import time
 
-# Monkey-patch missing SlidingWindowCache for Phi-4-mini compatibility
-try:
-    from transformers.cache_utils import SlidingWindowCache  # noqa: F401
-except ImportError:
-    from transformers.cache_utils import DynamicCache as _DynCache
-    import transformers.cache_utils as _cu
-    class SlidingWindowCache(_DynCache):
-        """Stub for models that import SlidingWindowCache (e.g. Phi-4-mini)."""
-        pass
-    _cu.SlidingWindowCache = SlidingWindowCache
-
 # imports local methods, classes, etc.
 import oxrl.configs.load as cfg # all config arguments
 # Import local datasets module directly from file to avoid conflict with HuggingFace 'datasets' package
