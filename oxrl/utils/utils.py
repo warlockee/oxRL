@@ -63,3 +63,29 @@ def get_experiment_dir_name(output_dir: str, tag: str, experiment_id: str):
     '''
     experiment_dir = os.path.join(output_dir, experiment_id, tag)
     return experiment_dir
+
+def import_deepspeed_safely():
+    """
+    Attempts to import deepspeed and handle common initialization errors
+    (like MissingCUDAException) with clear warnings instead of fatal crashes.
+    """
+    import os
+    # Ensure bypass is enabled if not already set
+    if "DS_SKIP_CUDA_CHECK" not in os.environ:
+        os.environ["DS_SKIP_CUDA_CHECK"] = "1"
+    
+    try:
+        import deepspeed
+        return deepspeed
+    except Exception as e:
+        print(f"\n[WARNING] DeepSpeed initialization encountered an issue: {e}")
+        print("[WARNING] oxRL will attempt to continue, but performance might be degraded.")
+        print("[WARNING] If you encounter further errors, ensure CUDA Toolkit (nvcc) is installed.")
+        
+        # Try to import again with even more aggressive bypasses if possible
+        # or just re-raise if it's a fundamental ImportError
+        try:
+            import deepspeed
+            return deepspeed
+        except:
+            raise ImportError("DeepSpeed could not be imported. Please install it with: pip install deepspeed")

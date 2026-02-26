@@ -86,10 +86,9 @@ class GRPO(BaseAlgorithm):
             Since, we are using ray, each ray actor MUST create its own deepspeed engine.
             This is because each ray actor process is a separate process as it should be 1 actor = 1 gpu = 1 ds rank.
         '''
-        os.environ["DS_SKIP_CUDA_CHECK"] = "1"
-        os.environ["CUDA_HOME"] = "/tmp/fake_cuda"
+        from oxrl.utils.utils import import_deepspeed_safely
+        deepspeed = import_deepspeed_safely()
         
-        import deepspeed
         # Convert pydantic model to python Dict for DeepSpeed
         ds_config_dict = self.deepspeed_config.model_dump()
 
