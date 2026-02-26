@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="oxrl",
-    version="1.3.7",
+    version="1.3.8",
     packages=find_packages(),
     install_requires=[
         "torch>=2.0",
