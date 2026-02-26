@@ -2,7 +2,7 @@
   <img src="assets/logo.png" alt="oxRL" width="200">
 </p>
 
-<h1 align="center">oxRL</h1>
+<h1 align="center">An agent-friendly framework for any post-training</h1>
 
 <p align="center"><strong>Post-train any model under 10 lines of code.</strong></p>
 
