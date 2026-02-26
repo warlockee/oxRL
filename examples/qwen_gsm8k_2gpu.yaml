@@ -12,7 +12,7 @@
 #     --run_id qwen05b --use_system_prompt True
 #
 # Train (uses 2 GPUs total: 1 training + 1 rollout):
-#   python main_rl.py --config-file configs/qwen_gsm8k_2gpu.yaml
+#   python main_rl.py --config-file examples/qwen_gsm8k_2gpu.yaml
 ########################################################################
 
 run:

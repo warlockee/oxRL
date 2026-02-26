@@ -69,8 +69,8 @@ The following models have been verified and onboarded using our automated pipeli
 │  oxrl/algs/sft.py   │                   │ oxrl/datasets/        │
 │                     │                   │   (Multimodal Ready)  │
 ├─────────────────────┴───────────────────┴───────────────────────┤
-│  oxrl/swarm/        │  oxrl/utils/log.   │  oxrl/rewards.py        │
-│    orchestrator.py  │  oxrl/utils/setup. │  (Reasoning / Code)     │
+│  oxrl/swarm/        │  oxrl/utils/log.   │  oxrl/rewards/          │
+│    orchestrator.py  │  oxrl/utils/setup. │  (Math / Code / etc.)   │
 └──────────────────┴────────────────────┴─────────────────────────┘
 ```
 
@@ -131,6 +131,7 @@ oxRL/
 │   └── datasets/           # Dataset loaders and samplers
 ├── main_rl.py              RL training loop (Ray + DeepSpeed)
 ├── main_sl.py              SFT training loop (DeepSpeed)
+├── examples/               Ready-to-use recipes and training scripts
 └── setup.py                Packaging and Installation
 ```
 
