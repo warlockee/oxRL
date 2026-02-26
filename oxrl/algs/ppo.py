@@ -4,8 +4,10 @@ from tqdm import tqdm
 import ray
 from typing import Dict
 
+from oxrl.algs.base import BaseAlgorithm
+
 @ray.remote(resources={"training": 1})
-class PPO:
+class PPO(BaseAlgorithm):
     def __init__(self,
                 policy_engine,
                 value_engine,
@@ -41,6 +43,19 @@ class PPO:
 
         # use cross entropy loss for policy gradient
         self.cross_entropy = torch.nn.CrossEntropyLoss(reduction="none")
+        
+        self.ready = True
+
+    def is_ready(self) -> bool:
+        return self.ready
+
+    def train_step(self, replay_buffer):
+        """Standardized entry point for the training loop."""
+        return self.train_epoch(replay_buffer)
+
+    def save_checkpoint(self, output_dir: str, tag: str):
+        """Save policy and value weights."""
+        self.policy_engine.save_16bit_model(output_dir)
 
     def compute_advantages(self,
                            rewards: torch.Tensor,

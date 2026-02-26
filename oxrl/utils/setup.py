@@ -87,3 +87,58 @@ def load_tokenizer(model_name, trust_remote_code=False, rank=0):
             tokenizer.pad_token_id = tokenizer.eos_token_id
 
     return tokenizer
+
+def load_model_and_ref(model_path, model_dtype, trust_remote_code, attn_impl, ref_model_path=None):
+    '''
+        Unified loader for CausalLM, Multimodal, and ImageText models.
+        Handles architecture fallbacks automatically.
+    '''
+    from transformers import AutoModelForCausalLM, AutoModelForImageTextToText, AutoConfig, AutoModel
+    try:
+        from transformers import AutoModelForMultimodalLM
+    except ImportError:
+        AutoModelForMultimodalLM = None
+
+    def _load_single(path, cfg):
+        load_classes = [AutoModelForCausalLM, AutoModelForImageTextToText]
+        if AutoModelForMultimodalLM:
+            load_classes.append(AutoModelForMultimodalLM)
+        
+        # Architecture-specific fallbacks
+        try:
+            from transformers import Qwen2VLForConditionalGeneration
+            load_classes.append(Qwen2VLForConditionalGeneration)
+        except ImportError: pass
+        try:
+            from transformers import Qwen2AudioForConditionalGeneration
+            load_classes.append(Qwen2AudioForConditionalGeneration)
+        except ImportError: pass
+
+        for cls in load_classes:
+            try:
+                return cls.from_pretrained(path,
+                                          dtype=model_dtype,
+                                          trust_remote_code=trust_remote_code,
+                                          config=cfg,
+                                          attn_implementation=None if attn_impl == '' else attn_impl)
+            except (ValueError, TypeError):
+                continue
+        
+        # Ultimate fallback
+        return AutoModel.from_pretrained(path,
+                                        dtype=model_dtype,
+                                        trust_remote_code=trust_remote_code,
+                                        config=cfg,
+                                        attn_implementation=None if attn_impl == '' else attn_impl)
+
+    # Load Main Model
+    config = AutoConfig.from_pretrained(model_path, trust_remote_code=trust_remote_code)
+    model = _load_single(model_path, config)
+
+    # Load Ref Model (Optional)
+    ref_model = None
+    if ref_model_path:
+        ref_cfg = AutoConfig.from_pretrained(ref_model_path, trust_remote_code=trust_remote_code)
+        ref_model = _load_single(ref_model_path, ref_cfg)
+
+    return model, ref_model

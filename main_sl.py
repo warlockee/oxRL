@@ -21,7 +21,7 @@ _spec.loader.exec_module(_mod)
 PromptResponseDataset = _mod.PromptResponseDataset
 from oxrl.utils.utils import safe_string_to_torch_dtype, get_experiment_dir_name
 from oxrl.utils.logging import setup_logging, setup_mlflow, log_metrics, end_run
-from oxrl.utils.setup import set_random_seeds, get_distributed_info, load_tokenizer
+from oxrl.utils.setup import set_random_seeds, get_distributed_info, load_tokenizer, load_model_and_ref
 from oxrl.algs.sft import SFT
 
 SL_ALGORITHMS = {"sft": SFT}
@@ -31,29 +31,16 @@ def load_models_and_tokenizer(model_name, model_dtype, ref_model_name, trust_rem
         Load models and tokenizer.
         It also loads the ref model if provided.
     '''
-    assert model_dtype != 'auto', "dtype must not be auto to avoid any precision issues"
-    assert attn_impl=='' or attn_impl in ['eager', 'flash_attention_2'], "attn_impl must be one of 'eager', 'flash_attention_2' or empty string"
-
     # convert string to torch dtype if it is not already
     model_dtype = safe_string_to_torch_dtype(model_dtype)
 
-    # 1. model and its config initialization
-    model_config = AutoConfig.from_pretrained(model_name)
-    model = AutoModelForCausalLM.from_pretrained(model_name,
-                                                dtype=model_dtype,
-                                                trust_remote_code=trust_remote_code,
-                                                config=model_config,
-                                                attn_implementation=None if attn_impl == '' else attn_impl)
-
-    # if ref model is provided to use it in kl for example.
-    if ref_model_name:
-        ref_model = AutoModelForCausalLM.from_pretrained(ref_model_name,
-                                                         dtype=model_dtype,
-                                                         trust_remote_code=trust_remote_code,
-                                                         config=model_config,
-                                                         attn_implementation=None if attn_impl == '' else attn_impl)
-    else:
-        ref_model = None
+    model, ref_model = load_model_and_ref(
+        model_path=model_name,
+        model_dtype=model_dtype,
+        trust_remote_code=trust_remote_code,
+        attn_impl=attn_impl,
+        ref_model_path=ref_model_name
+    )
 
     # 2. Tokenizer initialization
     tokenizer = load_tokenizer(model_name, trust_remote_code=trust_remote_code, rank=rank)

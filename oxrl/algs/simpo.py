@@ -8,8 +8,11 @@ import deepspeed
 from transformers import AutoModelForCausalLM, AutoConfig
 from typing import Any, Dict, List, Optional, Tuple
 
+from oxrl.utils.setup import load_model_and_ref
+from oxrl.algs.base import BaseAlgorithm
+
 @ray.remote
-class SimPO:
+class SimPO(BaseAlgorithm):
     def __init__(self,
                  model_path: str,
                  model_dtype: torch.dtype,
@@ -84,12 +87,13 @@ class SimPO:
         )
 
     def load_model(self):
-        return AutoModelForCausalLM.from_pretrained(
-            self.model_path,
-            dtype=self.model_dtype,
+        model, _ = load_model_and_ref(
+            model_path=self.model_path,
+            model_dtype=self.model_dtype,
             trust_remote_code=self.trust_remote_code,
-            attn_implementation=None if self.attn_impl == '' else self.attn_impl
+            attn_impl=self.attn_impl
         )
+        return model
 
     def get_logps(self, logits, labels):
         # logits: [B, T, V], labels: [B, T]

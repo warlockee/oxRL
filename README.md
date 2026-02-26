@@ -143,6 +143,16 @@ oxRL/
 
 **Verification-driven RL.** We prioritize datasets where the reward is verifiable (Math, Code, Format) to drive logical discovery.
 
+## LLM Developer Map
+
+This repository is optimized for LLM-assisted development (Claude/Gemini). If you are asking an AI to work on this framework, refer them to these "High-Signal" files:
+
+- **Adding a New Algorithm:** See `oxrl/algs/base.py` (Base Class) and `oxrl/algs/grpo.py` (Implementation).
+- **Adding a Reward Function:** Add to `oxrl/rewards/` using the signature in `oxrl/rewards/base.py`.
+- **Changing Model Loading:** See `oxrl/utils/setup.py` -> `load_model_and_ref`.
+- **Training Logic:** The main loop resides in `main_rl.py`.
+- **Config Validation:** Logic is in `oxrl/configs/load.py`.
+
 ## Contributing
 
 Contributions are welcome. Please follow the existing architectural patterns and style.

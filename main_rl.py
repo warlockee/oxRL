@@ -31,7 +31,7 @@ from oxrl.utils.utils import safe_string_to_torch_dtype, get_experiment_dir_name
 from oxrl.rollouts.vllm_engine import VLLMRolloutEngine
 from oxrl.rollouts.replay_buffer import ReplayBuffer
 from oxrl.utils.logging import setup_logging, setup_mlflow, log_metrics, end_run
-from oxrl.utils.setup import set_random_seeds, get_rank_info, load_tokenizer
+from oxrl.utils.setup import set_random_seeds, get_rank_info, load_tokenizer, load_model_and_ref
 from oxrl.algs.grpo import GRPO
 
 def setup_ray(ray_address):

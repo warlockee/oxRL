@@ -18,8 +18,11 @@ except ImportError:
         pass
     _cu.SlidingWindowCache = SlidingWindowCache
 
+from oxrl.utils.setup import load_model_and_ref
+from oxrl.algs.base import BaseAlgorithm
+
 @ray.remote
-class GRPO:
+class GRPO(BaseAlgorithm):
     def __init__(self,
                  model_path: str,
                  model_dtype: torch.dtype,
@@ -148,69 +151,13 @@ class GRPO:
             print(f"[Alg:{self.alg_name}][Rank {rank}] Reference model initialized with DeepSpeed")
 
     def load_model(self):
-        '''
-            Load models and tokenizer from huggingface.
-        '''
-        assert self.model_dtype != 'auto', "dtype must not be auto to avoid any precision issues"
-        assert self.attn_impl=='' or self.attn_impl in ['eager', 'flash_attention_2'], "attn_impl must be one of 'eager', 'flash_attention_2' or empty string"
-
-        from transformers import AutoModelForCausalLM, AutoModelForImageTextToText, AutoConfig
-        try:
-            from transformers import AutoModelForMultimodalLM
-        except ImportError:
-            AutoModelForMultimodalLM = None
-        
-        def _load(path, cfg):
-            # Try a sequence of model classes
-            load_classes = [
-                AutoModelForCausalLM,
-                AutoModelForImageTextToText,
-            ]
-            if AutoModelForMultimodalLM is not None:
-                load_classes.append(AutoModelForMultimodalLM)
-            
-            # Specific model class fallbacks for older transformers or specialized architectures
-            try:
-                from transformers import Qwen2VLForConditionalGeneration
-                load_classes.append(Qwen2VLForConditionalGeneration)
-            except ImportError:
-                pass
-            try:
-                from transformers import Qwen2AudioForConditionalGeneration
-                load_classes.append(Qwen2AudioForConditionalGeneration)
-            except ImportError:
-                pass
-
-            for cls in load_classes:
-                try:
-                    return cls.from_pretrained(path,
-                                              dtype=self.model_dtype,
-                                              trust_remote_code=self.trust_remote_code,
-                                              config=cfg,
-                                              attn_implementation=None if self.attn_impl == '' else self.attn_impl)
-                except (ValueError, TypeError):
-                    continue
-            
-            # Final attempt with AutoModel
-            from transformers import AutoModel
-            return AutoModel.from_pretrained(path,
-                                            dtype=self.model_dtype,
-                                            trust_remote_code=self.trust_remote_code,
-                                            config=cfg,
-                                            attn_implementation=None if self.attn_impl == '' else self.attn_impl)
-
-        # 1. model and its config initialization
-        model_config = AutoConfig.from_pretrained(self.model_path, trust_remote_code=self.trust_remote_code)
-        model = _load(self.model_path, model_config)
-
-        # if ref model is provided to use it in kl for example.
-        if self.ref_model_path and self.kl_coeff > 0.0:
-            ref_config = AutoConfig.from_pretrained(self.ref_model_path, trust_remote_code=self.trust_remote_code)
-            ref_model = _load(self.ref_model_path, ref_config)
-        else:
-            ref_model = None
-
-        return model, ref_model
+        return load_model_and_ref(
+            model_path=self.model_path,
+            model_dtype=self.model_dtype,
+            trust_remote_code=self.trust_remote_code,
+            attn_impl=self.attn_impl,
+            ref_model_path=self.ref_model_path if self.kl_coeff > 0.0 else None
+        )
 
     def ref_forward(self, input_ids, att_mask, target_ids, pos_ids):
         '''
