@@ -29,6 +29,8 @@ The following models have been verified and onboarded using our automated pipeli
 
 | Model | Size | Task | Strategy | Status |
 |:---|:---|:---|:---|:---|
+| **Qwen3-0.6B** | 0.6B | Instruct | Full-tuning | ✅ Verified |
+| **Qwen3.5-35B-A3B** | 35.0B (3B active) | Reasoning | LoRA | ✅ Verified |
 | **DeepSeek-R1-Distill-Llama-8B** | 8.0B | Reasoning | LoRA | ✅ Verified |
 | **DeepSeek-R1-Distill-Qwen-7B** | 7.0B | Reasoning | LoRA | ✅ Verified |
 | **Qwen2.5-Coder-7B-Instruct** | 7.6B | Coding | LoRA | ✅ Verified |
