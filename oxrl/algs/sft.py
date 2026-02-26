@@ -77,9 +77,11 @@ class SFT:
             pos_ids = pos_ids.to(att_mask.device)
 
         # feed data to model
+        token_type_ids = torch.zeros_like(input_ids)
         output = self.model_engine(input_ids=input_ids,
                                    attention_mask=att_mask,
                                    position_ids=pos_ids,
+                                   token_type_ids=token_type_ids,
                                    use_cache=self.use_cache)
 
         # [B, T, vocab_size]
