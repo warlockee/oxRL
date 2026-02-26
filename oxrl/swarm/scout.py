@@ -604,7 +604,7 @@ def _task_for_entry(entry: dict) -> str:
     raise RuntimeError(f"Cannot determine task for entry: {entry}")
 
 
-def onboard_model(model_id: str, entry: dict, dry_run: bool = False) -> bool:
+def onboard_model(model_id: str, entry: dict, dry_run: bool = False, auto_report: bool = False) -> bool:
     """Run the full onboarding pipeline for a single model.
 
     Returns True if the model was successfully onboarded, False otherwise.
@@ -635,6 +635,7 @@ def onboard_model(model_id: str, entry: dict, dry_run: bool = False) -> bool:
         "hf_downloads": entry.get("hf_downloads"),
     }
     config_path = None
+    log_path = None
 
     try:
         # --- Step 1: DISCOVER ---
@@ -688,11 +689,21 @@ def onboard_model(model_id: str, entry: dict, dry_run: bool = False) -> bool:
         logger.warning("FAILED: %s — %s", model_id, eval_result.get("error"))
         
         # New: Framework bug detection signal
-        from oxrl.swarm.bug_reporter import is_framework_error
+        from oxrl.swarm.bug_reporter import is_framework_error, summarize_failure, submit_github_issue
         if is_framework_error(eval_result.get("error")):
             logger.error("=" * 70)
             logger.error("🚨 FRAMEWORK_BUG_DETECTED: This failure looks like a bug in oxRL.")
-            logger.error("AI AGENT ACTION: Please run `oxrl report --model %s` and submit a GitHub issue.", model_id)
+            
+            if auto_report and os.environ.get("GITHUB_TOKEN"):
+                logger.info("[AUTO-REPORT] Generating and submitting bug report...")
+                report = summarize_failure(model_id, eval_result.get("error"), log_path)
+                res = submit_github_issue(report, model_id)
+                if res["success"]:
+                    logger.info("[AUTO-REPORT] ✅ Submitted: %s", res.get("url", res.get("info")))
+                else:
+                    logger.error("[AUTO-REPORT] ❌ Submission failed: %s", res["error"])
+            else:
+                logger.error("AI AGENT ACTION: Please run `oxrl report --model %s` and submit a GitHub issue.", model_id)
             logger.error("=" * 70)
 
     return eval_result["success"]
@@ -790,6 +801,12 @@ def main():
         default=False,
         help="Show what would be done without executing anything",
     )
+    parser.add_argument(
+        "--auto-report",
+        action="store_true",
+        default=False,
+        help="Automatically submit framework bugs to GitHub (requires GITHUB_TOKEN)",
+    )
     args = parser.parse_args()
 
     logger.info("Scout agent starting")
@@ -854,7 +871,7 @@ def main():
             results["skipped"] += 1
             continue
 
-        success = onboard_model(model_id, fresh_entry, dry_run=args.dry_run)
+        success = onboard_model(model_id, fresh_entry, dry_run=args.dry_run, auto_report=args.auto_report)
 
         if args.dry_run:
             continue

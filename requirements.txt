@@ -11,3 +11,4 @@ tqdm
 peft
 bitsandbytes
 soundfile
+requests

@@ -90,3 +90,46 @@ def is_framework_error(error_msg):
             return True
             
     return False
+
+def submit_github_issue(report_md, model_id):
+    """
+    Submits the generated report as a GitHub issue.
+    Requires GITHUB_TOKEN environment variable.
+    """
+    import requests
+    
+    token = os.environ.get("GITHUB_TOKEN")
+    if not token:
+        return {"success": False, "error": "GITHUB_TOKEN not found in environment."}
+    
+    repo = "warlockee/oxRL"
+    url = f"https://api.github.com/repos/{repo}/issues"
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+    
+    title = f"[AUTO-BUG] Framework crash on {model_id}"
+    
+    # 1. Deduplication check: See if an open issue with this title already exists
+    try:
+        search_url = f"https://api.github.com/repos/{repo}/issues?state=open"
+        existing = requests.get(search_url, headers=headers).json()
+        if any(issue['title'] == title for issue in existing):
+            return {"success": True, "info": "Issue already exists and is open. Skipping."}
+    except:
+        pass # Continue to submission if check fails
+
+    # 2. Submit
+    data = {
+        "title": title,
+        "body": report_md,
+        "labels": ["bug", "automated-report"]
+    }
+    
+    response = requests.post(url, headers=headers, json=data)
+    if response.status_code == 201:
+        issue_url = response.json().get("html_url")
+        return {"success": True, "url": issue_url}
+    else:
+        return {"success": False, "error": f"GitHub API failed ({response.status_code}): {response.text}"}

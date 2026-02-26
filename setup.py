@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="oxrl",
-    version="1.3.6",
+    version="1.3.7",
     packages=find_packages(),
     install_requires=[
         "torch>=2.0",
@@ -18,6 +18,7 @@ setup(
         "peft",
         "bitsandbytes",
         "soundfile",
+        "requests",
     ],
     author="oxRL Team",
     description="A lightweight post-training framework for LLMs",

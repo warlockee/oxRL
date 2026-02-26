@@ -142,13 +142,14 @@ def main():
     report_parser = subparsers.add_parser("report", help="Generate a GitHub issue report for a failure")
     report_parser.add_argument("--model", type=str, help="Model ID that failed")
     report_parser.add_argument("--log", type=str, help="Path to the failure log")
+    report_parser.add_argument("--submit", action="store_true", help="Automatically submit to GitHub (requires GITHUB_TOKEN)")
     
     args = parser.parse_args()
     
     if args.command == "doctor":
         doctor(fix=args.fix)
     elif args.command == "report":
-        from oxrl.swarm.bug_reporter import summarize_failure
+        from oxrl.swarm.bug_reporter import summarize_failure, submit_github_issue
         # Look for the last failure log
         latest_log = None
         registry_dir = Path("registry")
@@ -163,6 +164,14 @@ def main():
             log_path=args.log or latest_log
         )
         print(report)
+
+        if args.submit:
+            print("\nSubmitting to GitHub...")
+            result = submit_github_issue(report, args.model or "unknown")
+            if result["success"]:
+                print(f"[OK] Issue submitted: {result.get('url', result.get('info'))}")
+            else:
+                print(f"[ERROR] Submission failed: {result['error']}")
     else:
         parser.print_help()
 
