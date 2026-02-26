@@ -186,10 +186,16 @@ def step_preprocess(dataset: str, model_slug: str) -> None:
 
     script = DATASET_SCRIPT_MAP.get(dataset)
     if script is None:
-        raise RuntimeError(
-            f"No preprocessing script mapped for dataset {dataset!r}. "
-            f"Known datasets: {list(DATASET_SCRIPT_MAP.keys())}"
-        )
+        # Dynamic check: Does a script with this name exist in preprocessing?
+        dynamic_script = f"oxrl/preprocessing/{dataset}.py"
+        if (PROJECT_ROOT / dynamic_script).exists():
+            script = dynamic_script
+            logger.info("[PREPROCESS] Found dynamic preprocessor for %s: %s", dataset, script)
+        else:
+            raise RuntimeError(
+                f"MISSING_PREPROCESSOR: No script found for dataset {dataset!r}. "
+                f"Please create oxrl/preprocessing/{dataset}.py"
+            )
 
     script_path = PROJECT_ROOT / script
     if not script_path.exists():
