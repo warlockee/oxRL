@@ -92,7 +92,8 @@ def training_engine_setup(params, alg, world_size, master_addr, master_port):
                     "MASTER_PORT": str(master_port),
                     "RANK": str(rank),
                     "WORLD_SIZE": str(world_size),
-                    "LOCAL_RANK": "0",}
+                    "LOCAL_RANK": "0",
+                    "DS_SKIP_CUDA_CHECK": "1",}
         # Forward HF tokens to Ray workers so gated models are accessible
         for _env_key in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
             if os.environ.get(_env_key):

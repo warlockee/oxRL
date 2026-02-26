@@ -6,7 +6,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--local_dir", type=str, default="data")
     parser.add_argument("--run_id", type=str, default="gpqa")
+    parser.add_argument("--use_system_prompt", type=str, default="True")
     args = parser.parse_args()
+
+    use_system_prompt = args.use_system_prompt.lower() == "true"
 
     print(f"Loading GPQA...")
     # Load GPQA Diamond (the most difficult split)
@@ -27,11 +30,14 @@ def main():
         for i, opt in enumerate(shuffled_options):
             prompt_text += f"{chr(65+i)}. {opt}\n"
         
+        messages = []
+        if use_system_prompt:
+            messages.append({"role": "system", "content": "You are a highly capable scientist. Solve the following graduate-level problem step by step, thinking carefully. Wrap your final answer letter (A, B, C, or D) in <answer> tags."})
+        
+        messages.append({"role": "user", "content": prompt_text})
+
         return {
-            "prompt": [
-                {"role": "system", "content": "You are a highly capable scientist. Solve the following graduate-level problem step by step, thinking carefully. Wrap your final answer letter (A, B, C, or D) in <answer> tags."},
-                {"role": "user", "content": prompt_text}
-            ],
+            "prompt": messages,
             "answer": correct_letter,
         }
 

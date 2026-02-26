@@ -66,13 +66,14 @@ MAX_ATTEMPTS = 3
 
 # Dataset -> preprocessing script mapping
 DATASET_SCRIPT_MAP = {
-    "gsm8k": "preprocessing/gsm8k.py",
-    "math_hard": "preprocessing/math_hard.py",
-    "mbpp": "preprocessing/mbpp.py",
-    "ultrafeedback": "preprocessing/ultrafeedback.py",
-    "vision_dummy": "preprocessing/vision_dummy.py",
-    "audio_dummy": "preprocessing/audio_dummy.py",
-    "openr1_math": "preprocessing/openr1_math.py",
+    "gsm8k": "oxrl/preprocessing/gsm8k.py",
+    "math_hard": "oxrl/preprocessing/math_hard.py",
+    "mbpp": "oxrl/preprocessing/mbpp.py",
+    "ultrafeedback": "oxrl/preprocessing/ultrafeedback.py",
+    "vision_dummy": "oxrl/preprocessing/vision_dummy.py",
+    "audio_dummy": "oxrl/preprocessing/audio_dummy.py",
+    "openr1_math": "oxrl/preprocessing/openr1_math.py",
+    "gpqa": "oxrl/preprocessing/gpqa.py",
 }
 
 # Timeout per tier (seconds): tier -> timeout_seconds
@@ -298,6 +299,10 @@ def step_train(config_path: str, model_slug: str, param_count_b: float) -> str:
         "--config-file", config_path,
     ]
 
+    # Inject environment variables to bypass CUDA checks if nvcc is missing
+    env = os.environ.copy()
+    env["DS_SKIP_CUDA_CHECK"] = "1"
+
     # Stream output to both log file and stdout in real-time
     start_time = time.monotonic()
     try:
@@ -309,6 +314,7 @@ def step_train(config_path: str, model_slug: str, param_count_b: float) -> str:
                 text=True,
                 bufsize=1,
                 cwd=str(PROJECT_ROOT),
+                env=env,
             )
 
             for line in process.stdout:

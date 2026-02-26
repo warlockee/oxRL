@@ -2,9 +2,9 @@ import torch
 import numpy as np
 from tqdm import tqdm
 import ray
-import deepspeed
 import os
 import glob
+from typing import Any
 from transformers import AutoModelForCausalLM, AutoModelForImageTextToText, AutoConfig
 
 # Monkey-patch missing SlidingWindowCache for Phi-4-mini compatibility
@@ -35,10 +35,10 @@ class GRPO(BaseAlgorithm):
                  use_cache: bool,
                  micro_batch_size_per_gpu: int,
                  update_after_full_replay: bool,
-                 deepspeed_config: deepspeed.DeepSpeedConfig,
+                 deepspeed_config: Any,
                  lora_config = None,
                  ref_model_path: str = None,
-                 deepspeed_ref_config = None,
+                 deepspeed_ref_config: Any = None,
                  loss_variant: str = "sgrpo",
                  ):
 
@@ -86,6 +86,10 @@ class GRPO(BaseAlgorithm):
             Since, we are using ray, each ray actor MUST create its own deepspeed engine.
             This is because each ray actor process is a separate process as it should be 1 actor = 1 gpu = 1 ds rank.
         '''
+        os.environ["DS_SKIP_CUDA_CHECK"] = "1"
+        os.environ["CUDA_HOME"] = "/tmp/fake_cuda"
+        
+        import deepspeed
         # Convert pydantic model to python Dict for DeepSpeed
         ds_config_dict = self.deepspeed_config.model_dump()
 
