@@ -4,16 +4,29 @@ import numpy as np
 import torch
 from transformers import AutoTokenizer
 
-# Monkey-patch missing SlidingWindowCache for Phi-4-mini compatibility
-try:
-    from transformers.cache_utils import SlidingWindowCache  # noqa: F401
-except ImportError:
-    from transformers.cache_utils import DynamicCache as _DynCache
-    import transformers.cache_utils as _cu
-    class SlidingWindowCache(_DynCache):
-        """Stub for models that import SlidingWindowCache (e.g. Phi-4-mini)."""
-        pass
-    _cu.SlidingWindowCache = SlidingWindowCache
+_sliding_window_patched = False
+
+def ensure_sliding_window_cache():
+    """
+    Monkey-patch missing SlidingWindowCache for Phi-4-mini compatibility.
+    Safe to call multiple times; only patches once.
+    """
+    global _sliding_window_patched
+    if _sliding_window_patched:
+        return
+    try:
+        from transformers.cache_utils import SlidingWindowCache  # noqa: F401
+    except ImportError:
+        from transformers.cache_utils import DynamicCache as _DynCache
+        import transformers.cache_utils as _cu
+        class SlidingWindowCache(_DynCache):
+            """Stub for models that import SlidingWindowCache (e.g. Phi-4-mini)."""
+            pass
+        _cu.SlidingWindowCache = SlidingWindowCache
+    _sliding_window_patched = True
+
+# Apply at import time for modules that import utils/setup.py
+ensure_sliding_window_cache()
 
 def set_random_seeds(seed):
     '''

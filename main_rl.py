@@ -10,12 +10,7 @@ import time
 
 # imports local methods, classes, etc.
 import oxrl.configs.load as cfg # all config arguments
-# Import local datasets module directly from file to avoid conflict with HuggingFace 'datasets' package
-import importlib.util as _ilu
-_spec = _ilu.spec_from_file_location("_prompt_only", os.path.join(os.path.dirname(__file__), "oxrl", "datasets", "prompt_only.py"))
-_mod = _ilu.module_from_spec(_spec)
-_spec.loader.exec_module(_mod)
-PromptOnlyDataset = _mod.PromptOnlyDataset
+from oxrl.datasets.prompt_only import PromptOnlyDataset
 from oxrl.utils.utils import safe_string_to_torch_dtype, get_experiment_dir_name
 from oxrl.rollouts.vllm_engine import VLLMRolloutEngine
 from oxrl.rollouts.replay_buffer import ReplayBuffer
@@ -73,6 +68,12 @@ def training_engine_setup(params, alg, world_size, master_addr, master_port):
 
                # algorithm related arguments
                'loss_variant':params.train.alg_name.lower(),
+
+               # optimizer hyperparameters
+               'lr':params.train.lr,
+               'betas':params.train.betas,
+               'weight_decay':params.train.weight_decay,
+               'adam_epsilon':params.train.adam_epsilon,
     }
     # setup ray runners
     ray_runners = []
@@ -329,21 +330,7 @@ def main(config_file, experiment_id, log_level="INFO"):
     logger.info(f"Created {num_rollout_engines} rollout engines")
 
     ########
-    # 7. initialize replay buffer
-    ########
-    logger.info("Initializing replay buffer...")
-    replay_buffer = ReplayBuffer(pad_token_id=tokenizer.pad_token_id,
-                                 max_seq_len=config.data.max_seq_len)
-
-    ########
-    # 8. Training loop
-    ########
-    logger.info("Starting training loop...")
-    
-    # We need to get the actual main loop logic which follows...
-    # (The replacement continues into the actual training loop)
-
-    # 6. Load the rollout dataloader
+    # 7. Load the rollout dataloader and initialize replay buffer
     ########
     logger.info(f"Created {num_rollout_engines} rollout engines with tensor_parallel_size={config.rollout.tensor_parallel_size}")
     logger.info(f"Loading rollout dataloader from {config.data.train_files_path}")
@@ -353,8 +340,7 @@ def main(config_file, experiment_id, log_level="INFO"):
     logger.info(f"Rollout dataloader ready. Total batches per epoch: {len(rollout_dataloader)}")
 
     replay_buffer = ReplayBuffer(pad_token_id=tokenizer.pad_token_id,
-                                 max_seq_len=config.data.max_seq_len,
-                                 )
+                                 max_seq_len=config.data.max_seq_len)
     logger.info("Replay buffer initialized")
     ########
     # 7. Training and evaluation loop
@@ -483,8 +469,8 @@ def main(config_file, experiment_id, log_level="INFO"):
 
         # 4. update policy version and reset replay buffer
         policy_version += 1
-        if alg_name.lower() in {"ppo", "grpo", "cispo"}:
-            replay_buffer.reset()
+        # All RL algorithms are on-policy; always reset to avoid stale data.
+        replay_buffer.reset()
 
         # Log epoch summary
         train_time = time.time() - train_start_time

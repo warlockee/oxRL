@@ -18,9 +18,9 @@ train:
   val_batch_size_per_gpu: 1
 
 model:
-  name: "google/gemma-2-2b-it" # Small model for quick loading
+  name: "Qwen/Qwen2.5-0.5B-Instruct"
   dtype: bfloat16
-  ref_model: "" # ORPO does not require a reference model
+  ref_model: ""
   trust_remote_code: true
   use_cache: false
   gradient_checkpointing: true
@@ -42,7 +42,7 @@ deepspeed:
   zero_optimization:
     stage: 2
     offload_optimizer:
-      device: "cpu"
+      device: "none"
       pin_memory: true
   flops_profiler:
     enabled: false

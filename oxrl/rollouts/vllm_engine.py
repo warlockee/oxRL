@@ -6,16 +6,8 @@ from vllm import LLM, SamplingParams
 from typing import Optional, List, Callable, Any, Dict
 import numpy as np
 
-# Monkey-patch missing SlidingWindowCache for Phi-4-mini compatibility
-try:
-    from transformers.cache_utils import SlidingWindowCache  # noqa: F401
-except ImportError:
-    from transformers.cache_utils import DynamicCache as _DynCache
-    import transformers.cache_utils as _cu
-    class SlidingWindowCache(_DynCache):
-        """Stub for models that import SlidingWindowCache (e.g. Phi-4-mini)."""
-        pass
-    _cu.SlidingWindowCache = SlidingWindowCache
+from oxrl.utils.setup import ensure_sliding_window_cache
+ensure_sliding_window_cache()
 
 @ray.remote
 class VLLMRolloutEngine:
@@ -463,7 +455,7 @@ class VLLMRolloutEngine:
         if len(samples) > 1:
             rewards_array = np.array(stats['rewards'])
             mean_scores = rewards_array.sum() / denom
-            std_scores  = np.sqrt(((rewards_array - mean_scores)**2).sum() / denom)
+            std_scores  = np.sqrt(((rewards_array - mean_scores)**2).sum() / max(1, denom - 1))
         else:
             # For a single sample, we don't normalize (i.e. advantage is 0 if we subtract mean)
             # but usually for n=1 we keep the raw reward.

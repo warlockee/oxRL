@@ -24,6 +24,10 @@ class SimPO(BaseAlgorithm):
                  micro_batch_size_per_gpu: int,
                  deepspeed_config: deepspeed.DeepSpeedConfig,
                  lora_config = None,
+                 lr: float = 1e-5,
+                 betas: list = None,
+                 weight_decay: float = 0.01,
+                 adam_epsilon: float = 1e-8,
                  ):
 
         self.alg_name = "SimPO"
@@ -42,6 +46,12 @@ class SimPO(BaseAlgorithm):
         # SimPO specific parameters
         self.beta = float(beta)
         self.gamma = float(gamma)
+
+        # optimizer hyperparameters
+        self.lr = float(lr)
+        self.betas = betas if betas is not None else [0.9, 0.95]
+        self.weight_decay = float(weight_decay)
+        self.adam_epsilon = float(adam_epsilon)
 
         self.ready = False
         self.init_training_engine()
@@ -77,7 +87,13 @@ class SimPO(BaseAlgorithm):
             del ds_config_dict["optimizer"]
         
         trainable_params = [p for p in model.parameters() if p.requires_grad]
-        optimizer = torch.optim.AdamW(trainable_params, lr=1e-6)
+        optimizer = torch.optim.AdamW(
+            trainable_params,
+            lr=self.lr,
+            betas=tuple(self.betas),
+            weight_decay=self.weight_decay,
+            eps=self.adam_epsilon,
+        )
 
         self.model_engine, self.optimizer, _, _ = deepspeed.initialize(
             model=model,

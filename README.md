@@ -46,21 +46,17 @@ The following models have been verified and onboarded using our automated pipeli
 ## System Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         oxRL Framework                          │
-├─────────────────────┬───────────────────┬───────────────────────┤
-│   Training Engines  │  Rollout Engines  │    Config + Data      │
-│   (Ray + DeepSpeed) │  (Ray + vLLM)     │    (Pydantic + HF)    │
-├─────────────────────┼───────────────────┼───────────────────────┤
-│                     │                   │                       │
-│  oxrl/algs/ppo.py   │                   │ oxrl/configs/load.py  │
-│    LoRA / PEFT      │   replay_buffer.py│                       │
-│  oxrl/algs/sft.py   │                   │ oxrl/datasets/        │
-│                     │                   │   (Multimodal Ready)  │
-├─────────────────────┴───────────────────┴───────────────────────┤
-│  oxrl/swarm/        │  oxrl/utils/log.   │  oxrl/rewards/          │
-│    orchestrator.py  │  oxrl/utils/setup. │  (Math / Code / etc.)   │
-└──────────────────┴────────────────────┴─────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                          oxRL Framework                          │
+├────────────────────────────────┬─────────────────────────────────┤
+│     RL Path (main_rl.py)       │     SL Path (main_sl.py)        │
+│  SGRPO / CISPO / SimPO / PPO  │  SFT / DPO / ORPO / KTO         │
+│  Ray actors + vLLM rollouts    │  DeepSpeed distributed training  │
+├────────────────────────────────┴─────────────────────────────────┤
+│  oxrl/algs/        Algorithms    │  oxrl/rollouts/   vLLM + Replay│
+│  oxrl/configs/     Pydantic cfg  │  oxrl/rewards/    Verifiable   │
+│  oxrl/datasets/    HF loaders    │  oxrl/utils/      Setup + Logs │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 ## RL Training Workflow
@@ -106,13 +102,23 @@ python main_rl.py --config-file config.yaml
 
 ## Algorithms
 
+### Reinforcement Learning (via Ray + vLLM rollouts)
+
+| Algorithm | File | Description |
+|-----------|------|-------------|
+| **SGRPO** | `oxrl/algs/grpo.py` | Stable GRPO — Clipped surrogate loss with LoRA support and reference-free variants. |
+| **CISPO** | `oxrl/algs/grpo.py` | Clipped importance-sampling policy optimization. |
+| **SimPO** | `oxrl/algs/simpo.py` | Simple Preference Optimization — Reference-free and length-normalized alignment. |
+| **PPO** | `oxrl/algs/ppo.py` | Proximal Policy Optimization with GAE and value clipping. |
+
+### Supervised Learning (via DeepSpeed)
+
 | Algorithm | File | Description |
 |-----------|------|-------------|
 | **SFT** | `oxrl/algs/sft.py` | Supervised Fine-Tuning — Cross-entropy loss with masking and normalization. |
-| **SGRPO** | `oxrl/algs/grpo.py` | Stable GRPO — Clipped surrogate loss with LoRA support and reference-free variants. |
-| **SimPO** | `oxrl/algs/simpo.py` | Simple Preference Optimization — Reference-free and length-normalized alignment. |
-| **CISPO** | `oxrl/algs/grpo.py` | Clipped importance-sampling policy optimization. |
-| **PPO** | `oxrl/algs/ppo.py` | Proximal Policy Optimization with GAE and value clipping. |
+| **DPO** | `oxrl/algs/dpo.py` | Direct Preference Optimization — Pairwise preference learning with a reference model. |
+| **ORPO** | `oxrl/algs/orpo.py` | Odds Ratio Preference Optimization — Reference-free preference alignment via log-odds. |
+| **KTO** | `oxrl/algs/kto.py` | Kahneman-Tversky Optimization — Prospect-theory-inspired alignment with moving-average KL baseline. |
 
 ## Project Structure
 
@@ -121,15 +127,15 @@ oxRL/
 ├── oxrl/                   # Core Framework Package
 │   ├── trainer.py          # High-level Trainer API
 │   ├── rewards/            # Verifiable reasoning and coding rewards (math, code, etc.)
-│   ├── algs/               # Algorithm implementations (GRPO, PPO, SimPO, SFT)
+│   ├── algs/               # Algorithm implementations (GRPO, PPO, SimPO, SFT, DPO, ORPO, KTO)
 │   ├── swarm/              # Autonomous model onboarding (Scout, Bugfixer)
 │   ├── preprocessing/      # Reasoning (OpenR1), Multimodal (Vision/Audio) preprocessors
 │   ├── rollouts/           # vLLM inference with structured prompt support
 │   └── datasets/           # Dataset loaders and samplers
-├── main_rl.py              RL training loop (Ray + DeepSpeed)
-├── main_sl.py              SFT training loop (DeepSpeed)
-├── examples/               Ready-to-use recipes and training scripts
-└── setup.py                Packaging and Installation
+├── main_rl.py              # RL training loop (Ray + DeepSpeed)
+├── main_sl.py              # SL training loop (DeepSpeed) — SFT, DPO, ORPO, KTO
+├── examples/               # Ready-to-use recipes and training scripts
+└── setup.py                # Packaging and Installation
 ```
 
 ## design-principles

@@ -29,6 +29,10 @@ class GRPO(BaseAlgorithm):
                  ref_model_path: str = None,
                  deepspeed_ref_config: Any = None,
                  loss_variant: str = "sgrpo",
+                 lr: float = 1e-5,
+                 betas: list = None,
+                 weight_decay: float = 0.01,
+                 adam_epsilon: float = 1e-8,
                  ):
 
         self.loss_variant = loss_variant
@@ -52,6 +56,12 @@ class GRPO(BaseAlgorithm):
         self.clip_low = float(clip_low)
         self.clip_high = float(clip_high)
         self.ent_coeff = float(entropy_coeff)
+
+        # optimizer hyperparameters
+        self.lr = float(lr)
+        self.betas = betas if betas is not None else [0.9, 0.95]
+        self.weight_decay = float(weight_decay)
+        self.adam_epsilon = float(adam_epsilon)
 
         # use cross entropy loss for policy gradient
         self.cross_entropy = torch.nn.CrossEntropyLoss(reduction="none")
@@ -121,7 +131,13 @@ class GRPO(BaseAlgorithm):
         
         # Filter for trainable parameters (crucial for LoRA)
         trainable_params = [p for p in model.parameters() if p.requires_grad]
-        optimizer = torch.optim.AdamW(trainable_params, lr=1e-6, weight_decay=0.01)
+        optimizer = torch.optim.AdamW(
+            trainable_params,
+            lr=self.lr,
+            betas=tuple(self.betas),
+            weight_decay=self.weight_decay,
+            eps=self.adam_epsilon,
+        )
 
         self.policy_engine, self.optimizer, _, _ = deepspeed.initialize(
                                                             model=model,

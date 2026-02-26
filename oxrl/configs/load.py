@@ -42,7 +42,7 @@ class Train(BaseModel):
 
     # RL-specific policy arguments
     kl_coeff: float | None = 0.0
-    clip_low: float | None = -0.2
+    clip_low: float | None = 0.2
     clip_high: float | None = 0.2
     entropy_coeff: float | None = 0.0
     update_after_full_replay: bool | None = True
@@ -312,13 +312,10 @@ class Config(BaseModel):
                     if self.train.train_steps_per_epoch is None:
                         raise ValueError("train_steps_per_epoch must be set for RL training")
                     
-                    # In RL, we iterate number_of_training_steps_per_epoch times.
-                    # Each time, we process the whole replay buffer shard.
-                    # We need to estimate the number of batches per engine.
-                    # This is approximate as the buffer size might vary, but 
-                    # for WarmupCosineLR it just needs to be large enough to not div-by-zero.
-                    # We assume at least 1 step per engine per outer loop.
-                    optimizer_steps_per_epoch = self.train.train_steps_per_epoch * 100 # Safe over-estimate for onboarding
+                    # In RL, the outer loop runs train_steps_per_epoch times.
+                    # Each iteration processes the replay buffer shard and
+                    # DeepSpeed handles gradient accumulation internally.
+                    optimizer_steps_per_epoch = self.train.train_steps_per_epoch
                     
                 total_optimizer_steps = self.train.total_number_of_epochs * optimizer_steps_per_epoch
                 warmup_steps = int(total_optimizer_steps * self.train.warmup_steps_ratio)

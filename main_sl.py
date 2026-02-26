@@ -12,18 +12,9 @@ import gc
 import time
 
 # imports local methods, classes, etc.
-import oxrl.configs.load as cfg# all config arguments
-# Import local datasets module directly from file to avoid conflict with HuggingFace 'datasets' package
-import importlib.util as _ilu
-_spec_pr = _ilu.spec_from_file_location("_prompt_response", os.path.join(os.path.dirname(__file__), "oxrl", "datasets", "prompt_response.py"))
-_mod_pr = _ilu.module_from_spec(_spec_pr)
-_spec_pr.loader.exec_module(_mod_pr)
-PromptResponseDataset = _mod_pr.PromptResponseDataset
-
-_spec_pp = _ilu.spec_from_file_location("_prompt_preference", os.path.join(os.path.dirname(__file__), "oxrl", "datasets", "prompt_preference.py"))
-_mod_pp = _ilu.module_from_spec(_spec_pp)
-_spec_pp.loader.exec_module(_mod_pp)
-PromptPreferenceDataset = _mod_pp.PromptPreferenceDataset
+import oxrl.configs.load as cfg # all config arguments
+from oxrl.datasets.prompt_response import PromptResponseDataset
+from oxrl.datasets.prompt_preference import PromptPreferenceDataset
 
 from oxrl.utils.utils import safe_string_to_torch_dtype, get_experiment_dir_name
 from oxrl.utils.logging import setup_logging, setup_mlflow, log_metrics, end_run
@@ -56,7 +47,7 @@ def load_models_and_tokenizer(model_name, model_dtype, ref_model_name, trust_rem
 
     return model, ref_model, tokenizer
 
-def training_engine_setup(deepspeed_config, model, ref_model=None):
+def training_engine_setup(deepspeed_config, model, train_config=None, ref_model=None):
     '''
         This function is responsible for setting up distributed training engine.
         For now, it only supports deepspeed.
@@ -72,8 +63,15 @@ def training_engine_setup(deepspeed_config, model, ref_model=None):
     # 2. Initialize model engine
     # Filter for trainable parameters (crucial for LoRA)
     trainable_params = [p for p in model.parameters() if p.requires_grad]
+
+    # Create a PyTorch optimizer explicitly to avoid DeepSpeed's FusedAdam
+    # which requires JIT-compiled CUDA extensions that may not be available.
+    lr = getattr(train_config, 'lr', 1e-5) if train_config else 1e-5
+    optimizer = torch.optim.AdamW(trainable_params, lr=lr)
+
     model_engine, optimizer, _, _ = deepspeed.initialize(
                                                         model=model,
+                                                        optimizer=optimizer,
                                                         model_parameters=trainable_params,
                                                         config=ds_config_dict
                                                         )
@@ -194,6 +192,7 @@ if __name__ == "__main__":
     ########
     model_engine, ref_model_engine, optimizer = training_engine_setup(deepspeed_config=config.deepspeed,
                                                                       model=model,
+                                                                      train_config=config.train,
                                                                       ref_model=ref_model)
 
     if config.model.gradient_checkpointing:
