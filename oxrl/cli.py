@@ -4,6 +4,7 @@ import subprocess
 import torch
 import platform
 import argparse
+from pathlib import Path
 
 def check_gpu():
     print("Checking GPU availability...")
@@ -137,11 +138,31 @@ def main():
     
     doctor_parser = subparsers.add_parser("doctor", help="Check environment for common issues")
     doctor_parser.add_argument("--fix", action="store_true", help="Attempt to automatically fix issues")
+
+    report_parser = subparsers.add_parser("report", help="Generate a GitHub issue report for a failure")
+    report_parser.add_argument("--model", type=str, help="Model ID that failed")
+    report_parser.add_argument("--log", type=str, help="Path to the failure log")
     
     args = parser.parse_args()
     
     if args.command == "doctor":
         doctor(fix=args.fix)
+    elif args.command == "report":
+        from oxrl.swarm.bug_reporter import summarize_failure
+        # Look for the last failure log
+        latest_log = None
+        registry_dir = Path("registry")
+        if registry_dir.exists():
+            logs = list(registry_dir.glob("**/train.log"))
+            if logs:
+                latest_log = str(sorted(logs, key=os.path.getmtime)[-1])
+        
+        report = summarize_failure(
+            model_id=args.model or "unknown",
+            error_msg="Manual report requested via CLI",
+            log_path=args.log or latest_log
+        )
+        print(report)
     else:
         parser.print_help()
 

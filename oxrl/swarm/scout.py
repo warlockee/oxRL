@@ -686,6 +686,14 @@ def onboard_model(model_id: str, entry: dict, dry_run: bool = False) -> bool:
         logger.info("ONBOARDED: %s", model_id)
     else:
         logger.warning("FAILED: %s — %s", model_id, eval_result.get("error"))
+        
+        # New: Framework bug detection signal
+        from oxrl.swarm.bug_reporter import is_framework_error
+        if is_framework_error(eval_result.get("error")):
+            logger.error("=" * 70)
+            logger.error("🚨 FRAMEWORK_BUG_DETECTED: This failure looks like a bug in oxRL.")
+            logger.error("AI AGENT ACTION: Please run `oxrl report --model %s` and submit a GitHub issue.", model_id)
+            logger.error("=" * 70)
 
     return eval_result["success"]
 
