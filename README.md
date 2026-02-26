@@ -4,8 +4,6 @@
 
 <h1 align="center">An agent-friendly framework for any post-training</h1>
 
-<p align="center"><strong>Post-train any model under 10 lines of code.</strong></p>
-
 <p align="center">A lightweight post-training framework for LLMs, VLMs, and VLAs. Maximizing developer speed. Scales to billions of parameters with DeepSpeed, vLLM, and Ray.</p>
 
 ---
