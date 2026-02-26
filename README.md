@@ -9,18 +9,7 @@
 <p align="center">A lightweight post-training framework for LLMs, VLMs, and VLAs. Maximizing developer speed. Scales to billions of parameters with DeepSpeed, vLLM, and Ray.</p>
 
 ---
-## 🚀 New in v1.1: Reasoning & Multimodal RL
-
-We've significantly expanded oxRL's capabilities to support the latest trending architectures and training recipes:
-
-*   **Verifiable Reasoning (Open-R1):** Native support for reasoning models with `<thought>` and `<answer>` tag enforcement and rule-based correctness rewards.
-*   **Simple Preference Optimization (SimPO):** State-of-the-art reference-free alignment that reduces VRAM by 40% and improves logical reasoning.
-*   **Multimodal RL:** Support for Vision-Language (VLM) and Audio-Language models. Seamless base64-to-tensor pipeline for on-policy rollouts.
-*   **GPQA & ScienceQA:** Integrated high-difficulty reasoning and multimodal datasets.
-*   **Memory-Efficient LoRA:** Built-in PEFT integration allows post-training 14B+ models on restricted hardware.
-
----
-## Usage (Python API)
+## Usage
 
 Post-train any model in under 10 lines of code. oxRL auto-detects your hardware, auto-prepares datasets, and scales to multi-GPU automatically.
 
