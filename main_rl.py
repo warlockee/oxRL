@@ -20,19 +20,19 @@ except ImportError:
     _cu.SlidingWindowCache = SlidingWindowCache
 
 # imports local methods, classes, etc.
-import configs.load as cfg # all config arguments
+import oxrl.configs.load as cfg # all config arguments
 # Import local datasets module directly from file to avoid conflict with HuggingFace 'datasets' package
 import importlib.util as _ilu
-_spec = _ilu.spec_from_file_location("_prompt_only", os.path.join(os.path.dirname(__file__), "datasets", "prompt_only.py"))
+_spec = _ilu.spec_from_file_location("_prompt_only", os.path.join(os.path.dirname(__file__), "oxrl", "datasets", "prompt_only.py"))
 _mod = _ilu.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)
 PromptOnlyDataset = _mod.PromptOnlyDataset
-from utils.utils import safe_string_to_torch_dtype, get_experiment_dir_name
-from rollouts.vllm_engine import VLLMRolloutEngine
-from rollouts.replay_buffer import ReplayBuffer
-from utils.logging import setup_logging, setup_mlflow, log_metrics, end_run
-from utils.setup import set_random_seeds, get_rank_info, load_tokenizer
-from algs.grpo import GRPO
+from oxrl.utils.utils import safe_string_to_torch_dtype, get_experiment_dir_name
+from oxrl.rollouts.vllm_engine import VLLMRolloutEngine
+from oxrl.rollouts.replay_buffer import ReplayBuffer
+from oxrl.utils.logging import setup_logging, setup_mlflow, log_metrics, end_run
+from oxrl.utils.setup import set_random_seeds, get_rank_info, load_tokenizer
+from oxrl.algs.grpo import GRPO
 
 def setup_ray(ray_address):
     '''
@@ -328,7 +328,7 @@ def main(config_file, experiment_id, log_level="INFO"):
     ########
     logger.info("Setting up inference/rollout engines...")
     if config.reward.reward_func:
-        reward_module = importlib.import_module("rewards.compute_score")
+        reward_module = importlib.import_module("oxrl.rewards")
         reward_fnc = getattr(reward_module, config.reward.reward_func)
         logger.info(f"Using reward function: {config.reward.reward_func}")
 

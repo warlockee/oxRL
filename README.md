@@ -64,15 +64,13 @@ The following models have been verified and onboarded using our automated pipeli
 │   (Ray + DeepSpeed) │  (Ray + vLLM)     │    (Pydantic + HF)    │
 ├─────────────────────┼───────────────────┼───────────────────────┤
 │                     │                   │                       │
-│  algs/grpo.py       │ rollouts/         │ configs/load.py       │
-│    SGRPO loss       │   vllm_engine.py  │ configs/*.yaml        │
+│  oxrl/algs/ppo.py   │                   │ oxrl/configs/load.py  │
 │    LoRA / PEFT      │   replay_buffer.py│                       │
-│  algs/PPO/ppo.py    │                   │ datasets/             │
-│  algs/SFT/sft.py    │                   │   prompt_only.py      │
+│  oxrl/algs/sft.py   │                   │ oxrl/datasets/        │
 │                     │                   │   (Multimodal Ready)  │
 ├─────────────────────┴───────────────────┴───────────────────────┤
-│  swarm/             │  utils/logging.py  │  rewards/compute_score  │
-│    orchestrator.py  │  utils/setup.py    │  (Reasoning / Code)     │
+│  oxrl/swarm/        │  oxrl/utils/log.   │  oxrl/rewards.py        │
+│    orchestrator.py  │  oxrl/utils/setup. │  (Reasoning / Code)     │
 └──────────────────┴────────────────────┴─────────────────────────┘
 ```
 
@@ -113,20 +111,27 @@ python main_rl.py --config-file config.yaml
 
 | Algorithm | File | Description |
 |-----------|------|-------------|
-| **SGRPO** | `algs/grpo.py` | Stable GRPO — Clipped surrogate loss with LoRA support and reference-free variants. |
-| **SimPO** | `algs/simpo.py` | Simple Preference Optimization — Reference-free and length-normalized alignment. |
-| **CISPO** | `algs/grpo.py` | Clipped importance-sampling policy optimization. |
-| **PPO** | `algs/PPO/ppo.py` | Proximal Policy Optimization with GAE and value clipping. |
+| **SFT** | `oxrl/algs/sft.py` | Supervised Fine-Tuning — Cross-entropy loss with masking and normalization. |
+| **SGRPO** | `oxrl/algs/grpo.py` | Stable GRPO — Clipped surrogate loss with LoRA support and reference-free variants. |
+| **SimPO** | `oxrl/algs/simpo.py` | Simple Preference Optimization — Reference-free and length-normalized alignment. |
+| **CISPO** | `oxrl/algs/grpo.py` | Clipped importance-sampling policy optimization. |
+| **PPO** | `oxrl/algs/ppo.py` | Proximal Policy Optimization with GAE and value clipping. |
 
 ## Project Structure
 
 ```
 oxRL/
+├── oxrl/                   # Core Framework Package
+│   ├── trainer.py          # High-level Trainer API
+│   ├── rewards/            # Verifiable reasoning and coding rewards (math, code, etc.)
+│   ├── algs/               # Algorithm implementations (GRPO, PPO, SimPO, SFT)
+│   ├── swarm/              # Autonomous model onboarding (Scout, Bugfixer)
+│   ├── preprocessing/      # Reasoning (OpenR1), Multimodal (Vision/Audio) preprocessors
+│   ├── rollouts/           # vLLM inference with structured prompt support
+│   └── datasets/           # Dataset loaders and samplers
 ├── main_rl.py              RL training loop (Ray + DeepSpeed)
-├── swarm/                  Autonomous model onboarding (Scout, Bugfixer)
-├── preprocessing/          Reasoning (OpenR1), Multimodal (Vision/Audio) preprocessors
-├── rollouts/               vLLM inference with structured prompt support
-├── rewards/                Verifiable reasoning and coding rewards
+├── main_sl.py              SFT training loop (DeepSpeed)
+└── setup.py                Packaging and Installation
 ```
 
 ## design-principles
