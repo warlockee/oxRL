@@ -87,7 +87,7 @@ class Trainer:
                 config_dict["train"][key] = val
 
         # 3. Save config
-        config_dir = PROJECT_ROOT / "onboarded" / config_dict["run"]["experiment_id"]
+        config_dir = PROJECT_ROOT / "registry" / config_dict["run"]["experiment_id"]
         config_dir.mkdir(parents=True, exist_ok=True)
         config_path = config_dir / "config.yaml"
         

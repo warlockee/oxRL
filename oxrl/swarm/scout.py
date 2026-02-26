@@ -39,7 +39,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.absolute()
 DATA_DIR = Path("/ceph/workspace/oxrl/data")
 CHECKPOINT_DIR = Path("/ceph/workspace/oxrl/ckps")
 MANIFEST_PATH = PROJECT_ROOT / "oxrl" / "swarm" / "manifest.json"
-ONBOARDED_DIR = PROJECT_ROOT / "onboarded"
+ONBOARDED_DIR = PROJECT_ROOT / "registry"
 
 # ---------------------------------------------------------------------------
 # Imports from sibling modules

@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 # Defaults
 # ---------------------------------------------------------------------------
 DEFAULT_MANIFEST_PATH = os.path.join(_SCRIPT_DIR, "manifest.json")
-DEFAULT_ONBOARDED_DIR = os.path.join(_PROJECT_ROOT, "onboarded")
+DEFAULT_ONBOARDED_DIR = os.path.join(_PROJECT_ROOT, "registry")
 DEFAULT_MAX_RETRIES = 3
 
 # Minimum number of training steps before we diagnose "reward always zero"

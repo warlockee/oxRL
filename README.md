@@ -38,7 +38,7 @@ trainer.train(task="reasoning")
 
 ## Supported Models
 
-The following models have been verified and onboarded using our automated pipeline. You can find ready-to-use scripts in the `examples/onboarded_models/` directory.
+The following models have been verified and onboarded using our automated pipeline. You can find ready-to-use scripts in the `examples/recipes/` directory.
 
 | Model | Size | Task | Strategy | Status |
 |:---|:---|:---|:---|:---|

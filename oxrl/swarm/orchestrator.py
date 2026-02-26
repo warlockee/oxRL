@@ -32,7 +32,7 @@ from typing import Optional
 # ---------------------------------------------------------------------------
 PROJECT_ROOT = Path(__file__).parent.parent.parent.absolute()
 MANIFEST_PATH = PROJECT_ROOT / "oxrl" / "swarm" / "manifest.json"
-ONBOARDED_DIR = PROJECT_ROOT / "onboarded"
+ONBOARDED_DIR = PROJECT_ROOT / "registry"
 
 # ---------------------------------------------------------------------------
 # Ensure project root is importable

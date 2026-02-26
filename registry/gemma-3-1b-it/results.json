@@ -1,0 +1,15 @@
+{
+  "model_id": "google/gemma-3-1b-it",
+  "model_slug": "gemma-3-1b-it",
+  "status": "onboarded",
+  "config_path": "/ceph/workspace/erik/oxRL/registry/gemma-3-1b-it/config.yaml",
+  "param_count_b": 1.0,
+  "tier": 0,
+  "reward_first": 0.7987,
+  "reward_final": 0.7987,
+  "reward_improvement": 0.0,
+  "reward_values": [
+    0.7987
+  ],
+  "onboarded_at": "2026-02-25T00:53:01.008907+00:00"
+}
