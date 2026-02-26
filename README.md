@@ -78,6 +78,14 @@ The following models have been verified and onboarded using our automated pipeli
 pip install oxrl
 ```
 
+### Environment Diagnostics
+
+Before starting a long training run, verify your environment (GPUs, CUDA Toolkit, DeepSpeed, Ray) with our diagnostic tool:
+
+```bash
+oxrl doctor
+```
+
 ### Post-train a Reasoning Model
 
 ```yaml
@@ -127,6 +135,8 @@ oxRL/
 ## design-principles
 
 **Debuggability over Pipelining.** oxRL avoids complex async pipelining to ensure that failure states are 100% reproducible and logs are clear.
+
+**Robust Environment Handling.** oxRL is designed to work even in constrained environments. It automatically handles common CUDA/DeepSpeed mismatches by providing actionable warnings instead of fatal crashes.
 
 **LoRA-first for 7B+**. We default to LoRA for larger models to enable high-quality research on consumer-grade and restricted high-end hardware.
 
