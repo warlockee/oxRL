@@ -48,13 +48,6 @@ These models have been explicitly verified through our automated onboarding pipe
 | **Qwen2-VL-7B-Instruct** | 7.0B | Vision | LoRA |
 | **DeepSeek-R1-Distill-Llama-8B** | 8.0B | Reasoning | LoRA |
 | **Qwen3.5-35B-A3B** | 35.0B (3B active) | Reasoning | LoRA |
-
-### Config-Ready Models
-
-These models have auto-generated configs in the registry and are queued for verification. They are expected to work out of the box:
-
-| Model | Size | Task | Strategy |
-|:---|:---|:---|:---|
 | **Qwen2.5-Coder-0.5B-Instruct** | 0.5B | Coding | Full-tuning |
 | **Llama-3.2-1B-Instruct** | 1.2B | Instruct | Full-tuning |
 | **Qwen2.5-Math-1.5B-Instruct** | 1.5B | Math | Full-tuning |
