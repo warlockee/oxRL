@@ -99,7 +99,7 @@ oxrl doctor
 
 ### Configuration
 
-oxRL uses YAML config files. See `oxrl/configs/rl_args.yaml` (RL) and `oxrl/configs/sl_args.yaml` (SL) for all available options with documentation. Example configs are in `examples/`.
+oxRL uses YAML config files. See `oxrl/configs/rl_args.yaml` (RL) and `oxrl/configs/sl_args.yaml` (SL) for all available options with documentation. Example configs are in `registry/examples/`.
 
 Key environment variables:
 - `OXRL_DATA_DIR` — Override default data directory (default: `./data`)
@@ -168,11 +168,12 @@ oxRL/
 │   └── datasets/           # Dataset loaders and samplers
 ├── main_rl.py              # RL training loop (Ray + DeepSpeed)
 ├── main_sl.py              # SL training loop (DeepSpeed) — 12 algorithms
+├── registry/examples/      # Example configs for all 17 algorithms
 ├── examples/               # Ready-to-use recipes and training scripts
-└── setup.py                # Packaging and Installation
+└── pyproject.toml          # Packaging and Installation
 ```
 
-## design-principles
+## Design Principles
 
 **Debuggability over Pipelining.** oxRL avoids complex async pipelining to ensure that failure states are 100% reproducible and logs are clear.
 
@@ -192,7 +193,7 @@ This repository is optimized for LLM-assisted development (Claude/Gemini). If yo
 - **Adding a New Algorithm:** See `oxrl/algs/base.py` (Base Class) and `oxrl/algs/grpo.py` (Implementation).
 - **Adding a Reward Function:** Add to `oxrl/rewards/` using the signature in `oxrl/rewards/base.py`.
 - **Changing Model Loading:** See `oxrl/utils/setup.py` -> `load_model_and_ref`.
-- **Training Logic:** The main loop resides in `main_rl.py`.
+- **Training Logic:** RL loop in `main_rl.py`, SL loop in `main_sl.py`.
 - **Config Validation:** Logic is in `oxrl/configs/load.py`.
 
 ## Contributing
