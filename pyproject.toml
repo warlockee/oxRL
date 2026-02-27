@@ -1,11 +1,11 @@
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "oxrl"
-version = "1.4.0"
-description = "A lightweight post-training framework for LLMs"
+version = "1.5.0"
+description = "A lightweight post-training framework for LLMs and VLMs"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
@@ -14,7 +14,6 @@ authors = [
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
