@@ -25,21 +25,55 @@ trainer.train(task="reasoning")
 
 ## Supported Models
 
-oxRL works with **any HuggingFace model** that supports `AutoModelForCausalLM`, including multimodal models via `AutoModelForImageTextToText`. No special integration needed — just pass the model name. The following models have been explicitly verified through our automated pipeline:
+oxRL works with **any HuggingFace model** that supports `AutoModelForCausalLM`, including multimodal models via `AutoModelForImageTextToText`. No special integration needed — just pass the model name.
 
-| Model | Size | Task | Strategy | Status |
-|:---|:---|:---|:---|:---|
-| **Qwen3-0.6B** | 0.6B | Instruct | Full-tuning | ✅ Verified |
-| **Qwen3.5-35B-A3B** | 35.0B (3B active) | Reasoning | LoRA | ✅ Verified |
-| **DeepSeek-R1-Distill-Llama-8B** | 8.0B | Reasoning | LoRA | ✅ Verified |
-| **DeepSeek-R1-Distill-Qwen-7B** | 7.0B | Reasoning | LoRA | ✅ Verified |
-| **Qwen2.5-Coder-7B-Instruct** | 7.6B | Coding | LoRA | ✅ Verified |
-| **Qwen2-Audio-7B-Instruct** | 7.0B | Audio | LoRA | ✅ Verified |
-| **Qwen2-VL-7B-Instruct** | 7.0B | Vision | LoRA | ✅ Verified |
-| **Gemma-3-1b-it** | 1.0B | Multimodal | Full-tuning | ✅ Verified |
-| **Mistral-7B-Instruct-v0.3** | 7.0B | Instruct | LoRA | ✅ Verified |
-| **Qwen2.5-7B-Instruct** | 7.0B | Math | LoRA | ✅ Verified |
-| **SmolLM2-1.7B-Instruct** | 1.7B | Instruct | Full-tuning | ✅ Verified |
+### Verified Models
+
+These models have been explicitly verified through our automated onboarding pipeline:
+
+| Model | Size | Task | Strategy |
+|:---|:---|:---|:---|
+| **Qwen3-0.6B** | 0.6B | Instruct | Full-tuning |
+| **Qwen2.5-0.5B-Instruct** | 0.5B | Math | Full-tuning |
+| **Gemma-3-1b-it** | 1.0B | Instruct | Full-tuning |
+| **Qwen2.5-1.5B-Instruct** | 1.5B | Math | Full-tuning |
+| **Qwen2.5-Coder-1.5B-Instruct** | 1.5B | Coding | Full-tuning |
+| **SmolLM2-1.7B-Instruct** | 1.7B | Instruct | Full-tuning |
+| **Qwen2.5-3B-Instruct** | 3.0B | Math | Full-tuning |
+| **DeepSeek-R1-Distill-Qwen-7B** | 7.6B | Reasoning | LoRA |
+| **Qwen2.5-7B-Instruct** | 7.0B | Math | LoRA |
+| **Qwen2.5-Coder-7B-Instruct** | 7.6B | Coding | LoRA |
+| **Mistral-7B-Instruct-v0.3** | 7.0B | Instruct | LoRA |
+| **Qwen2-Audio-7B-Instruct** | 7.0B | Audio | LoRA |
+| **Qwen2-VL-7B-Instruct** | 7.0B | Vision | LoRA |
+| **DeepSeek-R1-Distill-Llama-8B** | 8.0B | Reasoning | LoRA |
+| **Qwen3.5-35B-A3B** | 35.0B (3B active) | Reasoning | LoRA |
+
+### Config-Ready Models
+
+These models have auto-generated configs in the registry and are queued for verification. They are expected to work out of the box:
+
+| Model | Size | Task | Strategy |
+|:---|:---|:---|:---|
+| **Qwen2.5-Coder-0.5B-Instruct** | 0.5B | Coding | Full-tuning |
+| **Llama-3.2-1B-Instruct** | 1.2B | Instruct | Full-tuning |
+| **Qwen2.5-Math-1.5B-Instruct** | 1.5B | Math | Full-tuning |
+| **Qwen2-VL-2B-Instruct** | 2.0B | Vision | Full-tuning |
+| **Qwen3-VL-2B-Instruct** | 2.0B | Vision | Full-tuning |
+| **SmolVLM-Instruct** | 2.3B | Vision | Full-tuning |
+| **Gemma-2-2b-it** | 2.6B | Instruct | Full-tuning |
+| **Qwen2.5-Coder-3B-Instruct** | 3.0B | Coding | Full-tuning |
+| **Qwen2.5-VL-3B-Instruct** | 3.0B | Vision | Full-tuning |
+| **Llama-3.2-3B-Instruct** | 3.2B | Instruct | Full-tuning |
+| **Phi-3.5-mini-instruct** | 3.8B | Math | Full-tuning |
+| **Qwen3-4B** | 4.0B | Math | Full-tuning |
+| **Qwen3-VL-4B-Instruct** | 4.0B | Vision | Full-tuning |
+| **Qwen2.5-Math-7B-Instruct** | 7.0B | Math | LoRA |
+| **Qwen2.5-VL-7B-Instruct** | 7.0B | Vision | LoRA |
+| **Qwen3-8B** | 8.0B | Math | LoRA |
+| **Llama-3.1-8B-Instruct** | 8.0B | Reasoning | LoRA |
+| **Phi-4** | 14.7B | Math | LoRA |
+| **Qwen3.5-27B** | 27.0B | Instruct | LoRA |
 
 ---
 
