@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "oxrl"
+version = "1.4.0"
+description = "A lightweight post-training framework for LLMs"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+authors = [
+    { name = "oxRL Team" },
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "torch>=2.0",
+    "numpy",
+    "transformers>=4.34",
+    "datasets",
+    "deepspeed>=0.12",
+    "vllm>=0.4",
+    "ray>=2.9",
+    "pydantic>=2.0",
+    "pyyaml",
+    "tqdm",
+    "peft",
+    "bitsandbytes",
+    "soundfile",
+    "requests",
+]
+
+[project.scripts]
+oxrl = "oxrl.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/warlockee/oxRL"
+Repository = "https://github.com/warlockee/oxRL"
+Issues = "https://github.com/warlockee/oxRL/issues"
+
+[tool.setuptools.packages.find]
+include = ["oxrl*"]

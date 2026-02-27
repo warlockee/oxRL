@@ -2,7 +2,7 @@
   "model_id": "google/gemma-3-1b-it",
   "model_slug": "gemma-3-1b-it",
   "status": "onboarded",
-  "config_path": "/ceph/workspace/erik/oxRL/registry/gemma-3-1b-it/config.yaml",
+  "config_path": "registry/gemma-3-1b-it/config.yaml",
   "param_count_b": 1.0,
   "tier": 0,
   "reward_first": 0.7987,

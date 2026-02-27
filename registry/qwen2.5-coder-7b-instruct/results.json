@@ -2,7 +2,7 @@
   "model_id": "Qwen/Qwen2.5-Coder-7B-Instruct",
   "model_slug": "qwen2.5-coder-7b-instruct",
   "status": "onboarded",
-  "config_path": "/ceph/workspace/erik/oxRL/registry/qwen2.5-coder-7b-instruct/config.yaml",
+  "config_path": "registry/qwen2.5-coder-7b-instruct/config.yaml",
   "param_count_b": 7.62,
   "tier": 0,
   "reward_first": 0.0,

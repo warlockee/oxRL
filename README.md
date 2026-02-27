@@ -66,12 +66,25 @@ The following models have been verified and onboarded using our automated pipeli
 3.  **LoRA Lifecycle:** Train with adapters, save with gathered ZeRO-3 weights, and **auto-strip PEFT prefixes** for immediate vLLM compatibility.
 4.  **Verifiable Rewards:** Programmatic verification of CoT tags and mathematical correctness.
 
-## Quick Start
+## Getting Started
 
 ### Installation
 
 ```bash
+# From source (recommended for development)
+git clone https://github.com/warlockee/oxRL.git
+cd oxRL
+pip install -e .
+
+# Or from PyPI
 pip install oxrl
+```
+
+### Run Tests
+
+```bash
+pip install pytest
+pytest tests/test_bugs.py -v
 ```
 
 ### Environment Diagnostics
@@ -81,6 +94,16 @@ Before starting a long training run, verify your environment (GPUs, CUDA Toolkit
 ```bash
 oxrl doctor
 ```
+
+### Configuration
+
+oxRL uses YAML config files. See `oxrl/configs/rl_args.yaml` (RL) and `oxrl/configs/sl_args.yaml` (SL) for all available options with documentation. Example configs are in `examples/`.
+
+Key environment variables:
+- `OXRL_DATA_DIR` — Override default data directory (default: `./data`)
+- `OXRL_CHECKPOINT_DIR` — Override default checkpoint directory (default: `./checkpoints`)
+- `HF_TOKEN` — HuggingFace token for gated models
+- `GITHUB_TOKEN` — For autonomous bug reporting (optional)
 
 ### Post-train a Reasoning Model
 

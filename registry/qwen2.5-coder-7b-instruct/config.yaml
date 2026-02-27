@@ -2,8 +2,8 @@ run:
   experiment_id: qwen2.5-coder-7b-instruct_mbpp_282bac
   training_gpus: 2
   rollout_gpus: 2
-  checkpoint_dir: /ceph/workspace/oxrl/ckps/qwen2.5-coder-7b-instruct_mbpp_282bac
-  tracking_uri: http://localhost:5000
+  checkpoint_dir: ./checkpoints/qwen2.5-coder-7b-instruct_mbpp_282bac
+  tracking_uri: 
   project_name: oxrl-exp
   ray_address: null
   ray_master_port: 29600
@@ -62,8 +62,8 @@ data:
   - mbpp_qwen2.5-coder-7b-instruct_wsp_train
   train_ratios:
     mbpp_qwen2.5-coder-7b-instruct_wsp_train: 1.0
-  train_files_path: /ceph/workspace/oxrl/data/mbpp_qwen2.5-coder-7b-instruct_wsp_train_onboard.parquet
-  val_files_path: /ceph/workspace/oxrl/data/mbpp_qwen2.5-coder-7b-instruct_wsp_test.parquet
+  train_files_path: ./data/mbpp_qwen2.5-coder-7b-instruct_wsp_train_onboard.parquet
+  val_files_path: ./data/mbpp_qwen2.5-coder-7b-instruct_wsp_test.parquet
   num_workers: 4
   max_seq_len: 1024
   prompt_key: prompt

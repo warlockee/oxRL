@@ -36,8 +36,8 @@ from typing import Optional
 # Paths
 # ---------------------------------------------------------------------------
 PROJECT_ROOT = Path(__file__).parent.parent.parent.absolute()
-DATA_DIR = Path("/ceph/workspace/oxrl/data")
-CHECKPOINT_DIR = Path("/ceph/workspace/oxrl/ckps")
+DATA_DIR = Path(os.environ.get("OXRL_DATA_DIR", "./data"))
+CHECKPOINT_DIR = Path(os.environ.get("OXRL_CHECKPOINT_DIR", "./checkpoints"))
 MANIFEST_PATH = PROJECT_ROOT / "oxrl" / "swarm" / "manifest.json"
 ONBOARDED_DIR = PROJECT_ROOT / "registry"
 

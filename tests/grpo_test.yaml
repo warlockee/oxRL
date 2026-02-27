@@ -49,8 +49,8 @@ data:
   - gsm8k_qwen2.5-0.5b-instruct_wsp_train
   train_ratios:
     gsm8k_qwen2.5-0.5b-instruct_wsp_train: 1.0
-  train_files_path: /ceph/workspace/oxrl/data/gsm8k_qwen2.5-0.5b-instruct_wsp_train_onboard.parquet
-  val_files_path: /ceph/workspace/oxrl/data/gsm8k_qwen2.5-0.5b-instruct_wsp_test.parquet
+  train_files_path: ./data/gsm8k_qwen2.5-0.5b-instruct_wsp_train_onboard.parquet
+  val_files_path: ./data/gsm8k_qwen2.5-0.5b-instruct_wsp_test.parquet
   num_workers: 4
   max_seq_len: 512
   prompt_key: prompt

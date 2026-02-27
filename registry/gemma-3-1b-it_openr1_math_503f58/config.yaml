@@ -2,8 +2,8 @@ run:
   experiment_id: gemma-3-1b-it_openr1_math_503f58
   training_gpus: 1
   rollout_gpus: 1
-  checkpoint_dir: /ceph/workspace/oxrl/ckps/gemma-3-1b-it_openr1_math_503f58
-  tracking_uri: http://localhost:5000
+  checkpoint_dir: ./checkpoints/gemma-3-1b-it_openr1_math_503f58
+  tracking_uri: 
   project_name: oxrl-exp
   ray_address: null
   ray_master_port: 29600
@@ -62,8 +62,8 @@ data:
   - openr1_math_gemma-3-1b-it_wsp_train
   train_ratios:
     openr1_math_gemma-3-1b-it_wsp_train: 1.0
-  train_files_path: /ceph/workspace/oxrl/data/openr1_math_gemma-3-1b-it_wsp_train.parquet
-  val_files_path: /ceph/workspace/oxrl/data/openr1_math_gemma-3-1b-it_wsp_test.parquet
+  train_files_path: ./data/openr1_math_gemma-3-1b-it_wsp_train.parquet
+  val_files_path: ./data/openr1_math_gemma-3-1b-it_wsp_test.parquet
   num_workers: 4
   max_seq_len: 1024
   prompt_key: prompt

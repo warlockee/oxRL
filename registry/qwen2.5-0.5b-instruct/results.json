@@ -2,7 +2,7 @@
   "model_id": "Qwen/Qwen2.5-0.5B-Instruct",
   "model_slug": "qwen2.5-0.5b-instruct",
   "status": "onboarded",
-  "config_path": "/ceph/workspace/erik/oxRL/registry/qwen2.5-0.5b-instruct/config.yaml",
+  "config_path": "registry/qwen2.5-0.5b-instruct/config.yaml",
   "param_count_b": 0.49,
   "tier": 1,
   "reward_first": 0.3525,

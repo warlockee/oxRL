@@ -111,4 +111,7 @@ venv.bak/
 /site
 
 # mypy
-.mypy_cache/cuda_env/
+.mypy_cache/
+
+# CUDA toolkit
+cuda_env/

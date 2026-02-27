@@ -1,7 +1,7 @@
 run:
   experiment_id: "dummyrun_rl_1"
   project_name: "oxrl-exp"
-  tracking_uri: "http://localhost:5000"
+  tracking_uri: ""
   training_gpus: 2
   rollout_gpus: 2
   ray_address: null #"auto" if it is the same node, otherwise run ray start --head --port=6379 and assign ray_address to "auto"

@@ -2,7 +2,7 @@
   "model_id": "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
   "model_slug": "deepseek-r1-distill-qwen-7b",
   "status": "onboarded",
-  "config_path": "/ceph/workspace/erik/oxRL/registry/deepseek-r1-distill-qwen-7b/config.yaml",
+  "config_path": "registry/deepseek-r1-distill-qwen-7b/config.yaml",
   "param_count_b": 7.62,
   "tier": 0,
   "reward_first": 0.016,

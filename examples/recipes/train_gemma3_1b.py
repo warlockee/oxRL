@@ -9,7 +9,7 @@ def main():
     print(f"--- Preprocessing data for {model_name} ---")
     preprocess_cmd = [
         "python", "oxrl/preprocessing/openr1_math.py",
-        "--local_dir", "/ceph/workspace/oxrl/data",
+        "--local_dir", "./data",
         "--run_id", "gemma-3-1b-it"
     ]
     subprocess.run(preprocess_cmd, check=True)

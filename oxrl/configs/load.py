@@ -12,7 +12,7 @@ class Run(BaseModel):
     distributed_training_strategy: str = "deepspeed-zero3"
     seed: int = 42
     project_name: str = "oxrl-exp"
-    tracking_uri: str = "http://localhost:5000"
+    tracking_uri: str = ""
     method: str = None
 
     # RL-specific fields

@@ -124,8 +124,8 @@ def generate_config(
     model_name: str,
     task: str,
     param_count_b: float,
-    data_dir: str = "/ceph/workspace/oxrl/data",
-    checkpoint_dir: str = "/ceph/workspace/oxrl/ckps",
+    data_dir: str = "./data",
+    checkpoint_dir: str = "./checkpoints",
     experiment_id: Optional[str] = None,
 ) -> dict:
     """
@@ -210,7 +210,7 @@ def generate_config(
             "training_gpus": _training_gpus,
             "rollout_gpus": _rollout_gpus,
             "checkpoint_dir": f"{checkpoint_dir}/{experiment_id}",
-            "tracking_uri": "http://localhost:5000",
+            "tracking_uri": "",
             "project_name": "oxrl-exp",
             "ray_address": None,
             "ray_master_port": 29600,
