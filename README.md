@@ -77,14 +77,14 @@ These models have been explicitly verified through our automated onboarding pipe
 │                          oxRL Framework                          │
 ├────────────────────────────────┬─────────────────────────────────┤
 │     RL Path (main_rl.py)       │     SL Path (main_sl.py)        │
-│  SGRPO / CISPO / PPO          │  SFT / DPO / ORPO / KTO         │
-│  RLHF / RLAIF                 │  CPT / KD / RM / RFT            │
+│  SGRPO / CISPO / PPO           │  SFT / DPO / ORPO / KTO         │
+│  RLHF / RLAIF                  │  CPT / KD / RM / RFT            │
 │  Ray actors + vLLM rollouts    │  OnlineDPO / SPIN / IPO / SimPO │
-│                                │  DeepSpeed distributed training  │
+│                                │  DeepSpeed distributed training │
 ├────────────────────────────────┴─────────────────────────────────┤
-│  oxrl/algs/        Algorithms    │  oxrl/rollouts/   vLLM + Replay│
-│  oxrl/configs/     Pydantic cfg  │  oxrl/rewards/    Verifiable   │
-│  oxrl/datasets/    HF loaders    │  oxrl/utils/      Setup + Logs │
+│  oxrl/algs/       Algorithms   │  oxrl/rollouts/   vLLM + Replay │
+│  oxrl/configs/    Pydantic cfg │  oxrl/rewards/    Verifiable    │
+│  oxrl/datasets/   HF loaders   │  oxrl/utils/      Setup + Logs  │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
