@@ -3,7 +3,7 @@ run:
   project_name: "oxrl-exp"
   tracking_uri: "http://localhost:5000"
   distributed_training_strategy: "deepspeed-zero3"
-  checkpoint_dir: "/ceph/workspace/oxrl/ckps"
+  checkpoint_dir: "./checkpoints"
   seed: 42
 
 train:
@@ -31,8 +31,6 @@ train:
   total_number_of_epochs: 30
   # number of micro-batch iterations per epoch (optimizer_steps = micro_batches_per_epoch // gradient_accumulation_steps)
   micro_batches_per_epoch: 1000
-  # if True, we will recalculate the ratio of each dataset in every step
-  dynamic_ratio_every_step: True
 
   ###############
   # Arguments which are common to both deepspeed or other distributed training frameworks and standalone training.
@@ -63,8 +61,8 @@ model:
 data:
   train_dnames: ["dataset1", "dataset2"]
   train_ratios: {"dataset1": 0.8, "dataset2": 0.2}
-  train_files_path: "/ceph/workspace/oxrl/data/gsm8k_123245_ns_train.parquet"
-  val_files_path: "/ceph/workspace/oxrl/data/gsm8k_123245_ns_test.parquet"
+  train_files_path: "./data/train.parquet"
+  val_files_path: "./data/val.parquet"
   num_workers: 4
   max_seq_len: 512
   prompt_key: "prompt"

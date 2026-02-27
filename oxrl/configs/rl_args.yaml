@@ -8,7 +8,7 @@ run:
   # Port for torch distributed/deepspeed rendezvous.
   ray_master_port: 29500
   distributed_training_strategy: "deepspeed-zero3"
-  checkpoint_dir: "/ceph/workspace/oxrl/ckps"
+  checkpoint_dir: "./checkpoints"
   seed: 42
 
 train:
@@ -30,7 +30,7 @@ train:
 
   # Specific policy arguments
   kl_coeff: 0.0
-  clip_low: -0.2
+  clip_low: 0.2
   clip_high: 0.2
   entropy_coeff: 0.0
   update_after_full_replay: True
@@ -43,8 +43,6 @@ train:
   total_number_of_epochs: 30
   # number of training steps per epoch
   train_steps_per_epoch: 5
-  # if True, we will recalculate the ratio of each dataset in every step
-  dynamic_ratio_every_step: True
 
   ###############
   # Arguments which are common to both deepspeed or other distributed training frameworks and standalone training.
@@ -98,8 +96,8 @@ model:
 data:
   train_dnames: ["gsm8k_123245_ns_train"]
   train_ratios: {"gsm8k_123245_ns_train": 1.0}
-  train_files_path: "/ceph/workspace/oxrl/data/gsm8k_123245_ns_train.parquet"
-  val_files_path: "/ceph/workspace/oxrl/data/gsm8k_123245_ns_test.parquet"
+  train_files_path: "./data/train.parquet"
+  val_files_path: "./data/val.parquet"
   num_workers: 4
   max_seq_len: 512
   prompt_key: "prompt"

@@ -37,13 +37,12 @@ train:
   clip_grad_norm: 1.0
   lr_scheduler: WarmupCosineLR
   kl_coeff: 0.0
-  clip_low: -0.2
+  clip_low: 0.2
   clip_high: 0.2
   entropy_coeff: 0.0
   update_after_full_replay: true
   total_number_of_epochs: 1
   train_steps_per_epoch: 1
-  dynamic_ratio_every_step: true
   train_batch_size_per_gpu: 1
   gradient_accumulation_steps: 4
   val_batch_size_per_gpu: 16
