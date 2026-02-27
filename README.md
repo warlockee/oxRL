@@ -25,7 +25,7 @@ trainer.train(task="reasoning")
 
 ## Supported Models
 
-The following models have been verified and onboarded using our automated pipeline. You can find ready-to-use scripts in the `examples/recipes/` directory.
+oxRL works with **any HuggingFace model** that supports `AutoModelForCausalLM`, including multimodal models via `AutoModelForImageTextToText`. No special integration needed — just pass the model name. The following models have been explicitly verified through our automated pipeline:
 
 | Model | Size | Task | Strategy | Status |
 |:---|:---|:---|:---|:---|
