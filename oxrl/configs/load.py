@@ -77,6 +77,24 @@ class Train(BaseModel):
 
     normalize_loss: bool = True
 
+    # Knowledge Distillation
+    kd_alpha: float = 0.5
+    kd_temperature: float = 2.0
+
+    # Rejection Sampling Fine-Tuning
+    reward_threshold: float = 0.5
+
+    # RLHF
+    reward_model_path: str = ""
+
+    # SimPO
+    simpo_gamma: float = 0.5
+
+    # PPO
+    ppo_vf_clip: float = 0.2
+    ppo_tau: float = 0.95
+    ppo_gamma: float = 0.99
+
 class Data(BaseModel):
     '''
         Everything related to data goes here.

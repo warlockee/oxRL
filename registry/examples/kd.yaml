@@ -1,0 +1,83 @@
+# Knowledge Distillation (KD) — SL algorithm
+# Uses PromptResponseDataset. Teacher model provides soft targets.
+# ref_model is the teacher (larger model); student is the main model.
+
+run:
+  experiment_id: example_kd
+  distributed_training_strategy: deepspeed-zero3
+  checkpoint_dir: ./checkpoints/example_kd
+  project_name: oxrl-exp
+  tracking_uri: ""
+  seed: 42
+
+lora:
+  enabled: false
+
+train:
+  alg_name: kd
+  optimizer_name: adamw
+  lr: 1.0e-05
+  adam_epsilon: 1.0e-08
+  betas: [0.9, 0.95]
+  weight_decay: 0.01
+  warmup_steps_ratio: 0.1
+  clip_grad_norm: 1.0
+  lr_scheduler: WarmupCosineLR
+  total_number_of_epochs: 1
+  micro_batches_per_epoch: 100
+  train_batch_size_per_gpu: 2
+  gradient_accumulation_steps: 4
+  val_batch_size_per_gpu: 16
+  normalize_loss: true
+  kd_alpha: 0.5
+  kd_temperature: 2.0
+
+model:
+  name: Qwen/Qwen2.5-0.5B-Instruct
+  dtype: bfloat16
+  ref_model: Qwen/Qwen2.5-1.5B-Instruct
+  ref_model_offload_to_cpu: true
+  trust_remote_code: true
+  use_cache: false
+  model_class: llm
+  gradient_checkpointing: true
+  attn_implementation: eager
+
+data:
+  train_dnames: [kd_train]
+  train_files_path: ./data/kd_train.parquet
+  val_files_path: ./data/kd_val.parquet
+  num_workers: 4
+  max_seq_len: 512
+  prompt_key: prompt
+  answer_key: answer
+
+deepspeed:
+  zero_optimization:
+    stage: 3
+    stage3_param_persistence_threshold: 100000.0
+    stage3_prefetch_bucket_size: 50000000.0
+    offload_optimizer:
+      device: none
+      pin_memory: true
+    offload_param:
+      device: none
+      pin_memory: true
+    contiguous_gradients: true
+    overlap_comm: true
+    reduce_scatter: true
+    reduce_bucket_size: 500000000.0
+    allgather_bucket_size: 500000000.0
+    stage3_gather_16bit_weights_on_model_save: true
+  activation_checkpointing:
+    partition_activations: true
+    contiguous_memory_optimization: true
+  steps_per_print: 100
+  wall_clock_breakdown: false
+  flops_profiler:
+    enabled: false
+    profile_step: 10
+    module_depth: -1
+    top_modules: 1
+    detailed: true
+    output_file: null

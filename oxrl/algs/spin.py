@@ -2,108 +2,70 @@ import torch
 import torch.nn.functional as F
 from typing import Dict, Any
 
-class SimPO:
-    def __init__(self,
-                model_engine,
-                optimizer,
-                beta=0.1,
-                gamma=0.5,
-                use_cache=False):
+class SPIN:
+    """SPIN: Self-Play Improvement from Natural Language. A DPO variant where chosen = ground truth and rejected = model's own generation from a previous iteration. The self-play generation happens upstream between training epochs."""
 
+    def __init__(self, model_engine, ref_model_engine, optimizer, beta=0.1, use_cache=False, normalize_loss=False):
         self.model_engine = model_engine
+        self.ref_model_engine = ref_model_engine
         self.optimizer = optimizer
         self.beta = beta
-        self.gamma = gamma
         self.use_cache = use_cache
 
     def compute_logps(self, logits, target_ids, loss_mask):
-        '''
-           Computes length-normalized log probabilities for the given logits and targets.
-           logits: [B, T-1, vocab_size]
-           target_ids: [B, T-1]
-           loss_mask: [B, T-1]
-           Returns:
-               logps: [B]  (length-normalized)
-        '''
         log_probs = F.log_softmax(logits, dim=-1)
         per_token_logps = torch.gather(log_probs, dim=2, index=target_ids.unsqueeze(2)).squeeze(2)
-
-        # Apply mask, sum, and length-normalize
-        # [B, T-1] * [B, T-1] -> [B, T-1] -> [B]
-        logps = (per_token_logps * loss_mask).sum(-1) / loss_mask.sum(-1).clamp(min=1)
+        logps = (per_token_logps * loss_mask).sum(-1)
         return logps
 
-    def forward(self, input_ids, attn_mask, loss_mask):
-        '''
-            Forward pass through the model engine.
-        '''
+    def forward(self, input_ids, attn_mask, loss_mask, model_engine):
         token_type_ids = torch.zeros_like(input_ids)
-
-        output = self.model_engine(input_ids=input_ids,
-                                   attention_mask=attn_mask,
-                                   token_type_ids=token_type_ids,
-                                   use_cache=self.use_cache)
-
-        # [B, T, V] -> [B, T-1, V]
+        output = model_engine(input_ids=input_ids, attention_mask=attn_mask,
+                              token_type_ids=token_type_ids, use_cache=self.use_cache)
         logits = output.logits[:, :-1, :].contiguous()
-        # [B, T] -> [B, T-1]
         target_ids = input_ids[:, 1:].contiguous()
-
         logps = self.compute_logps(logits, target_ids, loss_mask)
         return logps
 
-    def compute_loss(self, pi_logps_w, pi_logps_l):
-        '''
-           SimPO Loss: -log(sigmoid(beta * (logps_w - logps_l) - gamma))
-        '''
-        logits = self.beta * (pi_logps_w - pi_logps_l) - self.gamma
+    def compute_loss(self, pi_logps_w, pi_logps_l, ref_logps_w, ref_logps_l):
+        pi_logr_w = pi_logps_w - ref_logps_w
+        pi_logr_l = pi_logps_l - ref_logps_l
+        logits = self.beta * (pi_logr_w - pi_logr_l)
         loss = -F.logsigmoid(logits).mean()
-
         with torch.no_grad():
-            margin = (pi_logps_w - pi_logps_l).mean()
-
+            rewards_w = self.beta * pi_logr_w
+            rewards_l = self.beta * pi_logr_l
+            margin = (rewards_w - rewards_l).mean()
         return loss, margin
 
     def train_step(self, micro_batch):
-        '''
-           One training step for SimPO.
-           micro_batch contains: chosen_input_ids, rejected_input_ids, ...
-        '''
         self.model_engine.train()
-
-        # Combine chosen and rejected inputs for a single forward pass
+        if self.ref_model_engine is not None:
+            self.ref_model_engine.eval()
         batch_size = micro_batch['chosen_input_ids'].shape[0]
         input_ids = torch.cat([micro_batch['chosen_input_ids'], micro_batch['rejected_input_ids']], dim=0)
         attn_mask = torch.cat([micro_batch['chosen_attn_mask'], micro_batch['rejected_attn_mask']], dim=0)
         loss_mask = torch.cat([micro_batch['chosen_loss_mask'], micro_batch['rejected_loss_mask']], dim=0)
-
-        # Policy model logps (length-normalized)
-        pi_logps = self.forward(input_ids, attn_mask, loss_mask)
+        with torch.no_grad():
+            ref_logps = self.forward(input_ids, attn_mask, loss_mask, self.ref_model_engine)
+            ref_logps_w, ref_logps_l = torch.split(ref_logps, batch_size, dim=0)
+        pi_logps = self.forward(input_ids, attn_mask, loss_mask, self.model_engine)
         pi_logps_w, pi_logps_l = torch.split(pi_logps, batch_size, dim=0)
-
-        # Compute SimPO loss
-        loss, margin = self.compute_loss(pi_logps_w, pi_logps_l)
-
-        # Backward and Step
+        loss, margin = self.compute_loss(pi_logps_w, pi_logps_l, ref_logps_w, ref_logps_l)
         self.model_engine.backward(loss)
         self.model_engine.step()
-
         return {"loss": loss.item(), "margin": margin.item()}
 
     def eval_step(self, micro_batch):
-        '''
-           Validation step.
-        '''
         self.model_engine.eval()
         with torch.no_grad():
             batch_size = micro_batch['chosen_input_ids'].shape[0]
             input_ids = torch.cat([micro_batch['chosen_input_ids'], micro_batch['rejected_input_ids']], dim=0)
             attn_mask = torch.cat([micro_batch['chosen_attn_mask'], micro_batch['rejected_attn_mask']], dim=0)
             loss_mask = torch.cat([micro_batch['chosen_loss_mask'], micro_batch['rejected_loss_mask']], dim=0)
-
-            pi_logps = self.forward(input_ids, attn_mask, loss_mask)
+            ref_logps = self.forward(input_ids, attn_mask, loss_mask, self.ref_model_engine)
+            ref_logps_w, ref_logps_l = torch.split(ref_logps, batch_size, dim=0)
+            pi_logps = self.forward(input_ids, attn_mask, loss_mask, self.model_engine)
             pi_logps_w, pi_logps_l = torch.split(pi_logps, batch_size, dim=0)
-
-            loss, margin = self.compute_loss(pi_logps_w, pi_logps_l)
-
+            loss, margin = self.compute_loss(pi_logps_w, pi_logps_l, ref_logps_w, ref_logps_l)
         return {"loss": loss.item(), "margin": margin.item()}

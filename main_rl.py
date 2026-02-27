@@ -17,6 +17,7 @@ from oxrl.rollouts.replay_buffer import ReplayBuffer
 from oxrl.utils.logging import setup_logging, setup_mlflow, log_metrics, end_run
 from oxrl.utils.setup import set_random_seeds, get_rank_info, load_tokenizer, load_model_and_ref
 from oxrl.algs.grpo import GRPO
+from oxrl.algs.ppo import PPO
 
 def setup_ray(ray_address):
     '''
@@ -75,6 +76,12 @@ def training_engine_setup(params, alg, world_size, master_addr, master_port):
                'weight_decay':params.train.weight_decay,
                'adam_epsilon':params.train.adam_epsilon,
     }
+    # PPO needs different kwargs than GRPO
+    if params.train.alg_name.lower() == "ppo":
+        kwargs['vf_clip'] = params.train.ppo_vf_clip
+        kwargs['tau'] = params.train.ppo_tau
+        kwargs['gamma'] = params.train.ppo_gamma
+
     # setup ray runners
     ray_runners = []
     for rank in range(world_size):
@@ -281,7 +288,7 @@ def main(config_file, experiment_id, log_level="INFO"):
     ########
     logger.info(f"Setting up training algorithm: {config.train.alg_name}")
 
-    RL_ALGORITHMS = {"sgrpo": GRPO, "cispo": GRPO}
+    RL_ALGORITHMS = {"sgrpo": GRPO, "cispo": GRPO, "rlhf": GRPO, "rlaif": GRPO, "ppo": PPO}
 
     alg_name = config.train.alg_name.lower()
     if alg_name not in RL_ALGORITHMS:

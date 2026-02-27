@@ -2,47 +2,50 @@ import torch
 import torch.nn.functional as F
 from typing import Dict, Any
 
-class SimPO:
+class IPO:
     def __init__(self,
                 model_engine,
+                ref_model_engine,
                 optimizer,
                 beta=0.1,
-                gamma=0.5,
-                use_cache=False):
+                use_cache=False,
+                normalize_loss=False):
 
         self.model_engine = model_engine
+        self.ref_model_engine = ref_model_engine
         self.optimizer = optimizer
         self.beta = beta
-        self.gamma = gamma
         self.use_cache = use_cache
+        self.normalize_loss = normalize_loss
 
     def compute_logps(self, logits, target_ids, loss_mask):
         '''
-           Computes length-normalized log probabilities for the given logits and targets.
+           Computes log probabilities for the given logits and targets.
            logits: [B, T-1, vocab_size]
            target_ids: [B, T-1]
            loss_mask: [B, T-1]
            Returns:
-               logps: [B]  (length-normalized)
+               logps: [B]
         '''
         log_probs = F.log_softmax(logits, dim=-1)
         per_token_logps = torch.gather(log_probs, dim=2, index=target_ids.unsqueeze(2)).squeeze(2)
 
-        # Apply mask, sum, and length-normalize
+        # Apply mask and sum across sequence length
         # [B, T-1] * [B, T-1] -> [B, T-1] -> [B]
-        logps = (per_token_logps * loss_mask).sum(-1) / loss_mask.sum(-1).clamp(min=1)
+        logps = (per_token_logps * loss_mask).sum(-1)
         return logps
 
-    def forward(self, input_ids, attn_mask, loss_mask):
+    def forward(self, input_ids, attn_mask, loss_mask, model_engine):
         '''
-            Forward pass through the model engine.
+            Forward pass through the given model engine.
         '''
+        # Token type IDs might be needed for some models
         token_type_ids = torch.zeros_like(input_ids)
 
-        output = self.model_engine(input_ids=input_ids,
-                                   attention_mask=attn_mask,
-                                   token_type_ids=token_type_ids,
-                                   use_cache=self.use_cache)
+        output = model_engine(input_ids=input_ids,
+                              attention_mask=attn_mask,
+                              token_type_ids=token_type_ids,
+                              use_cache=self.use_cache)
 
         # [B, T, V] -> [B, T-1, V]
         logits = output.logits[:, :-1, :].contiguous()
@@ -52,24 +55,31 @@ class SimPO:
         logps = self.compute_logps(logits, target_ids, loss_mask)
         return logps
 
-    def compute_loss(self, pi_logps_w, pi_logps_l):
+    def compute_loss(self, pi_logps_w, pi_logps_l, ref_logps_w, ref_logps_l):
         '''
-           SimPO Loss: -log(sigmoid(beta * (logps_w - logps_l) - gamma))
+           IPO Loss: (log_ratio_w - log_ratio_l - 1/(2*beta))^2
+           log_ratio = log(pi / pi_ref)
         '''
-        logits = self.beta * (pi_logps_w - pi_logps_l) - self.gamma
-        loss = -F.logsigmoid(logits).mean()
+        pi_logr_w = pi_logps_w - ref_logps_w
+        pi_logr_l = pi_logps_l - ref_logps_l
+
+        loss = ((pi_logr_w - pi_logr_l) - 1.0 / (2.0 * self.beta)).square().mean()
 
         with torch.no_grad():
-            margin = (pi_logps_w - pi_logps_l).mean()
+            rewards_w = self.beta * pi_logr_w
+            rewards_l = self.beta * pi_logr_l
+            margin = (rewards_w - rewards_l).mean()
 
         return loss, margin
 
     def train_step(self, micro_batch):
         '''
-           One training step for SimPO.
+           One training step for IPO.
            micro_batch contains: chosen_input_ids, rejected_input_ids, ...
         '''
         self.model_engine.train()
+        if self.ref_model_engine is not None:
+            self.ref_model_engine.eval()
 
         # Combine chosen and rejected inputs for a single forward pass
         batch_size = micro_batch['chosen_input_ids'].shape[0]
@@ -77,14 +87,19 @@ class SimPO:
         attn_mask = torch.cat([micro_batch['chosen_attn_mask'], micro_batch['rejected_attn_mask']], dim=0)
         loss_mask = torch.cat([micro_batch['chosen_loss_mask'], micro_batch['rejected_loss_mask']], dim=0)
 
-        # Policy model logps (length-normalized)
-        pi_logps = self.forward(input_ids, attn_mask, loss_mask)
+        # 1. Reference model logps
+        with torch.no_grad():
+            ref_logps = self.forward(input_ids, attn_mask, loss_mask, self.ref_model_engine)
+            ref_logps_w, ref_logps_l = torch.split(ref_logps, batch_size, dim=0)
+
+        # 2. Policy model logps
+        pi_logps = self.forward(input_ids, attn_mask, loss_mask, self.model_engine)
         pi_logps_w, pi_logps_l = torch.split(pi_logps, batch_size, dim=0)
 
-        # Compute SimPO loss
-        loss, margin = self.compute_loss(pi_logps_w, pi_logps_l)
+        # 3. Compute IPO loss
+        loss, margin = self.compute_loss(pi_logps_w, pi_logps_l, ref_logps_w, ref_logps_l)
 
-        # Backward and Step
+        # 4. Backward and Step
         self.model_engine.backward(loss)
         self.model_engine.step()
 
@@ -101,9 +116,12 @@ class SimPO:
             attn_mask = torch.cat([micro_batch['chosen_attn_mask'], micro_batch['rejected_attn_mask']], dim=0)
             loss_mask = torch.cat([micro_batch['chosen_loss_mask'], micro_batch['rejected_loss_mask']], dim=0)
 
-            pi_logps = self.forward(input_ids, attn_mask, loss_mask)
+            ref_logps = self.forward(input_ids, attn_mask, loss_mask, self.ref_model_engine)
+            ref_logps_w, ref_logps_l = torch.split(ref_logps, batch_size, dim=0)
+
+            pi_logps = self.forward(input_ids, attn_mask, loss_mask, self.model_engine)
             pi_logps_w, pi_logps_l = torch.split(pi_logps, batch_size, dim=0)
 
-            loss, margin = self.compute_loss(pi_logps_w, pi_logps_l)
+            loss, margin = self.compute_loss(pi_logps_w, pi_logps_l, ref_logps_w, ref_logps_l)
 
         return {"loss": loss.item(), "margin": margin.item()}

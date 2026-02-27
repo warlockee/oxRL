@@ -23,8 +23,21 @@ from oxrl.algs.sft import SFT
 from oxrl.algs.dpo import DPO
 from oxrl.algs.orpo import ORPO
 from oxrl.algs.kto import KTO
+from oxrl.algs.cpt import CPT
+from oxrl.algs.kd import KD
+from oxrl.algs.rm import RM
+from oxrl.algs.online_dpo import OnlineDPO
+from oxrl.algs.rft import RFT
+from oxrl.algs.spin import SPIN
+from oxrl.algs.ipo import IPO
+from oxrl.algs.simpo import SimPO
 
-SL_ALGORITHMS = {"sft": SFT, "dpo": DPO, "orpo": ORPO, "kto": KTO}
+SL_ALGORITHMS = {
+    "sft": SFT, "dpo": DPO, "orpo": ORPO, "kto": KTO,
+    "cpt": CPT, "kd": KD, "rm": RM,
+    "online_dpo": OnlineDPO, "rft": RFT, "spin": SPIN,
+    "ipo": IPO, "simpo": SimPO,
+}
 
 def load_models_and_tokenizer(model_name, model_dtype, ref_model_name, trust_remote_code, attn_impl, rank):
     '''
@@ -108,7 +121,7 @@ def data_loader_setup(params, tokenizer, rank, world_size, batch_size, split):
     data_path = params.data.train_files_path if split == 'train' else params.data.val_files_path
     
     alg_name = params.train.alg_name.lower()
-    if alg_name in ["dpo", "orpo", "kto"]:
+    if alg_name in ["dpo", "orpo", "kto", "rm", "spin", "online_dpo", "ipo", "simpo"]:
         dataset = PromptPreferenceDataset(prompt_key=params.data.prompt_key,
                                           chosen_key=params.data.chosen_key,
                                           rejected_key=params.data.rejected_key,
@@ -245,6 +258,47 @@ if __name__ == "__main__":
                        ref_model_engine=ref_model_engine,
                        optimizer=optimizer,
                        beta=config.train.beta,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "cpt":
+        alg = alg_cls(model_engine=model_engine,
+                       optimizer=optimizer,
+                       use_cache=config.model.use_cache,
+                       normalize_loss=config.train.normalize_loss)
+    elif alg_name == "kd":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       alpha=config.train.kd_alpha,
+                       temperature=config.train.kd_temperature,
+                       use_cache=config.model.use_cache,
+                       normalize_loss=config.train.normalize_loss)
+    elif alg_name == "rm":
+        alg = alg_cls(model_engine=model_engine,
+                       optimizer=optimizer,
+                       use_cache=config.model.use_cache)
+    elif alg_name in ["online_dpo", "spin"]:
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "rft":
+        alg = alg_cls(model_engine=model_engine,
+                       optimizer=optimizer,
+                       use_cache=config.model.use_cache,
+                       normalize_loss=config.train.normalize_loss,
+                       reward_threshold=config.train.reward_threshold)
+    elif alg_name == "ipo":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "simpo":
+        alg = alg_cls(model_engine=model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       gamma=config.train.simpo_gamma,
                        use_cache=config.model.use_cache)
 
     ########
