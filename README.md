@@ -77,7 +77,7 @@ These models have been explicitly verified through our automated onboarding pipe
 │                          oxRL Framework                          │
 ├────────────────────────────────┬─────────────────────────────────┤
 │     RL Path (main_rl.py)       │     SL Path (main_sl.py)        │
-│  SGRPO / CISPO / PPO           │  SFT / DPO / ORPO / KTO         │
+│  SGRPO / GSPO / CISPO / PPO   │  SFT / DPO / ORPO / KTO         │
 │  RLHF / RLAIF                  │  CPT / KD / RM / RFT            │
 │  Ray actors + vLLM rollouts    │  OnlineDPO / SPIN / IPO / SimPO │
 │                                │  DeepSpeed distributed training │
@@ -156,13 +156,14 @@ python main_rl.py --config-file config.yaml
 
 ### Reinforcement Learning (via Ray + vLLM rollouts)
 
-| Algorithm | File | Description |
+| Algorithm | File | When to use |
 |-----------|------|-------------|
-| **SGRPO** | `oxrl/algs/grpo.py` | Stable GRPO — Clipped surrogate loss with LoRA support and reference-free variants. |
-| **CISPO** | `oxrl/algs/grpo.py` | Clipped importance-sampling policy optimization. |
-| **PPO** | `oxrl/algs/ppo.py` | Proximal Policy Optimization with GAE, value clipping, and shared-backbone critic. |
-| **RLHF** | `oxrl/algs/grpo.py` | Reinforcement Learning from Human Feedback — GRPO with a trained reward model. |
-| **RLAIF** | `oxrl/algs/grpo.py` | Reinforcement Learning from AI Feedback — GRPO with AI-generated rewards. |
+| **SGRPO** | `oxrl/algs/grpo.py` | Default for dense models. Token-level clipped surrogate, no critic needed. |
+| **GSPO** | `oxrl/algs/grpo.py` | MoE models (Qwen3-MoE, DeepSeek-V3). Sequence-level ratios absorb routing noise between vLLM and HF/DeepSpeed. |
+| **CISPO** | `oxrl/algs/grpo.py` | When SGRPO shows reward hacking or instability. Clipped ratio as detached weight on log-prob — more conservative. |
+| **PPO** | `oxrl/algs/ppo.py` | When you need fine-grained credit assignment. Full PPO with value head + GAE. ~2x memory cost. |
+| **RLHF** | `oxrl/algs/grpo.py` | Alias for SGRPO. Use for readability with reward-model setups. |
+| **RLAIF** | `oxrl/algs/grpo.py` | Alias for SGRPO. Use for readability with AI-feedback setups. |
 
 ### Supervised Learning (via DeepSpeed)
 
@@ -181,6 +182,23 @@ python main_rl.py --config-file config.yaml
 | **IPO** | `oxrl/algs/ipo.py` | Identity Preference Optimization — Squared-loss variant of DPO for improved stability. |
 | **SimPO** | `oxrl/algs/simpo.py` | Simple Preference Optimization — Reference-free, length-normalized preference alignment. |
 
+## Reward Functions
+
+All reward functions share the signature `(prompt_ids, response_ids, finish_reason, metadata) → (rewards, is_per_token)`. Set via `reward_func` in your config YAML.
+
+| Function | Signal | When to use |
+|----------|--------|-------------|
+| **default_reward_func** | Binary (EOS check) | Sanity checks or when reward comes from an external source. |
+| **gsm8k_reward_func** | Binary | GSM8K and grade-school math with numeric answers. |
+| **math_reward_func** | Binary | MATH dataset / competition math with `\boxed{}` answers. |
+| **soft_math_reward_func** | Graduated (1.0/0.5/0.2) | Math tasks where binary reward is too sparse. Switch to binary once accuracy > ~20%. |
+| **code_reward_func** | Binary | MBPP / HumanEval code-gen. Runs code against test cases. Requires `test_cases` in metadata. |
+| **format_reward_func** | 0–1.0 (0.25 steps) | Instruction-following / style alignment without ground-truth answers. |
+| **mcqa_reward_func** | Binary | MMLU-Pro / multiple-choice QA benchmarks. |
+| **reasoning_reward_func** | 0–1.0 (tags + correctness) | DeepSeek-R1 style chain-of-thought training. Rewards `<think>` + `<answer>` tags. |
+| **multimodal_reward_func** | 0–1.0 | Vision/audio tasks. Correctness + 0.2 fallback for modality awareness. |
+| **rm_reward_func** | Continuous | RLHF with a trained reward model. Requires `reward_model_path` in config. |
+
 ## Project Structure
 
 ```
@@ -188,14 +206,14 @@ oxRL/
 ├── oxrl/                   # Core Framework Package
 │   ├── trainer.py          # High-level Trainer API
 │   ├── rewards/            # Verifiable reasoning and coding rewards (math, code, etc.)
-│   ├── algs/               # 17 algorithm implementations (see tables above)
+│   ├── algs/               # 18 algorithm implementations (see tables above)
 │   ├── swarm/              # Autonomous model onboarding (Scout, Bugfixer)
 │   ├── preprocessing/      # Reasoning (OpenR1), Multimodal (Vision/Audio) preprocessors
 │   ├── rollouts/           # vLLM inference with structured prompt support
 │   └── datasets/           # Dataset loaders and samplers
 ├── main_rl.py              # RL training loop (Ray + DeepSpeed)
 ├── main_sl.py              # SL training loop (DeepSpeed) — 12 algorithms
-├── registry/examples/      # Example configs for all 17 algorithms
+├── registry/examples/      # Example configs for all 18 algorithms
 ├── examples/               # Ready-to-use recipes and training scripts
 └── pyproject.toml          # Packaging and Installation
 ```
