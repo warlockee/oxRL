@@ -2,7 +2,7 @@
   <img src="assets/logo.png" alt="oxRL" width="200">
 </p>
 
-<h1 align="center">An agent-friendly framework for any post-training</h1>
+<h1 align="center">An Claude-friendly framework for any post-training</h1>
 
 <p align="center">A lightweight post-training framework for LLMs and VLMs. Maximizing developer speed. Scales to billions of parameters with DeepSpeed, vLLM, and Ray.</p>
 
