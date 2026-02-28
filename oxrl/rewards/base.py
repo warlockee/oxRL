@@ -5,6 +5,9 @@ from typing import Any, Dict, List, Optional, Tuple
 def default_reward_func(prompt_ids: List[int], response_ids: List[int], finish_reason: Any, metadata: Optional[Dict] = None):
     '''
       Default reward: 1.0 if the model stopped naturally (EOS), 0.0 otherwise.
+      Use for: sanity checks, or when reward comes from an external source.
+      Pro:  no dataset-specific logic, works with any task.
+      Con:  only checks completion, not correctness — useless for learning quality.
     '''
     is_per_token = False
     r = torch.zeros((len(response_ids),), dtype=torch.float32)

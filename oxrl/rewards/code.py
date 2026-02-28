@@ -5,7 +5,14 @@ import torch
 from typing import Any, Dict, List, Optional, Tuple
 
 def code_reward_func(prompt_ids: List[int], response_ids: List[int], finish_reason: Any, metadata: Optional[Dict] = None):
-    '''MBPP code-generation reward: 1.0 if generated code passes test cases.'''
+    '''
+    Code execution reward: 1.0 if generated code passes test cases, 0.0 otherwise.
+    Use for: MBPP, HumanEval, or any code-gen task with test cases.
+    Pro:  ground-truth verification via execution — no false positives.
+    Con:  slow (subprocess per sample), security risk (runs untrusted code),
+          binary signal only (no partial credit for almost-correct code).
+    Requires metadata["test_cases"] (Python assert statements) and metadata["response_text"].
+    '''
     is_per_token = False
     r = torch.zeros((len(response_ids),), dtype=torch.float32)
     if len(response_ids) == 0 or not metadata:

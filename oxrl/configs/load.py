@@ -31,6 +31,11 @@ class Train(BaseModel):
     # optimizer related arguments
     ###############
     optimizer_name: str = "adamw"
+    # sgrpo:  token-level clipped surrogate. Default for dense models.
+    # gspo:   sequence-level clipped surrogate. Use for MoE models.
+    # cispo:  clipped ratio weights log-prob. More conservative than sgrpo.
+    # ppo:    full PPO with value head. Higher cost, finer credit assignment.
+    # rlhf/rlaif: aliases for sgrpo (readability only).
     alg_name: str
     lr: float = Field(default=1e-5, gt=0)
     adam_epsilon: float = 1e-8
@@ -56,7 +61,11 @@ class Train(BaseModel):
     # to have more control over the training process.
     total_number_of_epochs: int
 
-    # RL: train_steps_per_epoch = number of optimizer steps per epoch
+    # RL: train_steps_per_epoch = number of optimizer steps per epoch.
+    # Setting this to 1 gives strict on-policy training: the policy is
+    # resampled before every gradient update, preventing any off-policy drift.
+    # Higher values (e.g., 5) reuse the same rollout data for multiple updates,
+    # which is more compute-efficient but introduces mild off-policy staleness.
     train_steps_per_epoch: int | None = None
 
     # SL: micro_batches_per_epoch = number of micro-batch iterations per epoch
@@ -211,6 +220,16 @@ class Reward(BaseModel):
     model_config = ConfigDict(extra='forbid')
     broadcast: bool = False
     eps_reward_norm: float = 1e-8
+    # default_reward_func:    binary EOS check (sanity / external reward)
+    # gsm8k_reward_func:      binary numeric match (GSM8K math)
+    # math_reward_func:       binary \boxed{} match (MATH dataset)
+    # soft_math_reward_func:  graduated 1.0/0.5/0.2 (partial credit math)
+    # code_reward_func:       binary test execution (MBPP code-gen)
+    # format_reward_func:     0-1.0 style checklist (instruction-following)
+    # mcqa_reward_func:       binary letter match (MMLU-Pro QA)
+    # reasoning_reward_func:  0-1.0 tags + correctness (R1-style CoT)
+    # multimodal_reward_func: 0-1.0 correctness + modality (vision/audio)
+    # rm_reward_func:         continuous via trained reward model (RLHF)
     reward_func: str = "default_reward_func"
 
 class Rollout(BaseModel):
@@ -228,6 +247,11 @@ class Rollout(BaseModel):
     gpu_memory_utilization: float = 0.5
     stop_token_ids: list[int] = Field(default_factory=list)
     prompt_logprobs: bool = False
+    # Enforces unbiased sampling: temperature=1.0, top_p=1.0, top_k=-1, no stop
+    # tokens. This ensures the sampling distribution matches the true policy.
+    # Note: this controls *sampling purity*, not how many gradient steps are taken
+    # per rollout batch. For strict on-policy *training* (resample before every
+    # gradient step), set train_steps_per_epoch=1 in the Train config.
     force_strict_on_policy: bool = True
     tensor_parallel_size: int = 1
     rollout_batch_size_per_gpu: int = 2

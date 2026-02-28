@@ -5,10 +5,11 @@ from oxrl.rewards.base import extract_answer, _normalize_math
 
 def multimodal_reward_func(prompt_ids: List[int], response_ids: List[int], finish_reason: Any, metadata: Optional[Dict] = None):
     '''
-    Generic multimodal reward for Vision/Audio tasks.
-    Checks for:
-    - 1.0 Correctness (math or string match)
-    - 0.5 If it described the modality (keywords like "image", "audio", "video")
+    Multimodal reward: 1.0 for correctness, 0.2 fallback for modality awareness.
+    Use for: vision/audio tasks where the model should ground responses in the modality.
+    Pro:  gives partial credit for engaging with the input modality even when wrong.
+    Con:  modality keyword check is shallow — model can mention "image" without understanding it.
+    Correctness uses numeric + string matching. Modality keywords: image, audio, video, etc.
     '''
     is_per_token = False
     r = torch.zeros((len(response_ids),), dtype=torch.float32)

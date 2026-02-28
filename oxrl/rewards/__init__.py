@@ -1,3 +1,13 @@
+# Reward functions — all share signature: (prompt_ids, response_ids, finish_reason, metadata) -> (rewards, is_per_token)
+#
+# Binary (1/0):  default, gsm8k, math, code, mcqa — clear right/wrong signal, fast convergence.
+# Graduated:     soft_math (1.0/0.5/0.2), format (0.25 steps), reasoning (tags + correctness),
+#                multimodal (correctness + modality) — denser signal, helps when binary is too sparse.
+# Continuous:    rm_reward — learned reward model. Use for RLHF when no verifiable ground truth.
+#
+# Pick binary when you have verifiable answers. Pick graduated when binary reward is too sparse
+# (model rarely gets full marks). Pick rm_reward when correctness can't be checked programmatically.
+
 from oxrl.rewards.base import (
     default_reward_func,
     extract_answer,

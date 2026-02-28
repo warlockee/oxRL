@@ -11,6 +11,11 @@ from transformers import AutoConfig
 from oxrl.utils.setup import load_model_and_ref
 from oxrl.algs.base import BaseAlgorithm
 
+# PPO with value head (critic) and GAE for advantage estimation.
+# Pro:  fine-grained per-token credit assignment via learned value function.
+# Con:  ~2x memory (value head), harder to tune (vf_clip, tau, gamma).
+# Use when: reward is sparse or delayed and you need better credit assignment.
+# Prefer sgrpo/gspo for math/code tasks where outcome reward is sufficient.
 @ray.remote
 class PPO(BaseAlgorithm):
     def __init__(self,

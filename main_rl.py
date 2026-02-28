@@ -288,7 +288,12 @@ def main(config_file, experiment_id, log_level="INFO"):
     ########
     logger.info(f"Setting up training algorithm: {config.train.alg_name}")
 
-    RL_ALGORITHMS = {"sgrpo": GRPO, "cispo": GRPO, "rlhf": GRPO, "rlaif": GRPO, "ppo": PPO}
+    # sgrpo:  token-level clipped surrogate — default for dense models
+    # gspo:   sequence-level clipped surrogate — use for MoE models (absorbs routing noise)
+    # cispo:  clipped ratio as weight on log-prob — more conservative updates
+    # ppo:    full PPO with value head + GAE — higher cost, finer credit assignment
+    # rlhf/rlaif: sgrpo aliases for readability
+    RL_ALGORITHMS = {"sgrpo": GRPO, "cispo": GRPO, "gspo": GRPO, "rlhf": GRPO, "rlaif": GRPO, "ppo": PPO}
 
     alg_name = config.train.alg_name.lower()
     if alg_name not in RL_ALGORITHMS:

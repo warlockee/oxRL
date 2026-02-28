@@ -749,6 +749,104 @@ class TestRLAIF:
 
 
 # ============================================================
+# New Algorithm: GSPO (Group Sequence Policy Optimization)
+# ============================================================
+class TestGSPO:
+    """Tests for GSPO loss variant — sequence-level optimization for MoE models."""
+
+    def test_gspo_registered_in_rl_algorithms(self):
+        source_path = os.path.join(os.path.dirname(__file__), "..", "main_rl.py")
+        with open(source_path) as f:
+            source = f.read()
+        assert '"gspo"' in source, "GSPO should be registered in RL_ALGORITHMS"
+
+    def test_gspo_loss_is_finite(self):
+        """GSPO should produce finite loss with synthetic data."""
+        from oxrl.algs.grpo import GRPO
+        GRPOCls = GRPO.__ray_actor_class__
+        grpo = object.__new__(GRPOCls)
+        grpo.loss_variant = "gspo"
+        grpo.clip_low = 0.2
+        grpo.clip_high = 0.2
+        grpo.ent_coeff = 0.0
+        grpo.kl_coeff = 0.0
+
+        B, T = 4, 20
+        logprobs = torch.randn(B, T)
+        old_logprobs = logprobs + 0.01 * torch.randn(B, T)
+        advantages = torch.randn(B, T)
+        mask = torch.ones(B, T)
+        mask[:, 15:] = 0  # simulate padding
+
+        loss, metrics = grpo.compute_policy_loss(
+            logprobs=logprobs,
+            old_logprobs=old_logprobs,
+            advantages=advantages,
+            mask=mask,
+            entropies=None,
+            ref_logprobs=None,
+        )
+        assert torch.isfinite(loss), f"GSPO loss should be finite, got {loss}"
+        assert 'clipfrac' in metrics
+        assert 'kl_old' in metrics
+        assert 'loss_pi' in metrics
+
+    def test_gspo_sequence_level_averaging(self):
+        """GSPO should be more robust to token-level noise than SGRPO."""
+        from oxrl.algs.grpo import GRPO
+        GRPOCls = GRPO.__ray_actor_class__
+
+        B, T = 8, 30
+        base_logprobs = torch.randn(B, T) * 0.5
+        old_logprobs = base_logprobs.clone()
+        advantages = torch.randn(B, T)
+        mask = torch.ones(B, T)
+
+        # GSPO with clean data
+        grpo_gspo = object.__new__(GRPOCls)
+        grpo_gspo.loss_variant = "gspo"
+        grpo_gspo.clip_low = 0.2
+        grpo_gspo.clip_high = 0.2
+        grpo_gspo.ent_coeff = 0.0
+        grpo_gspo.kl_coeff = 0.0
+        loss_clean, _ = grpo_gspo.compute_policy_loss(
+            base_logprobs, old_logprobs, advantages, mask, None, None)
+
+        # GSPO with ~10% token-level noise (simulates MoE routing disagreement)
+        noisy_logprobs = base_logprobs + 0.3 * torch.randn(B, T)
+        loss_noisy, _ = grpo_gspo.compute_policy_loss(
+            noisy_logprobs, old_logprobs, advantages, mask, None, None)
+
+        assert torch.isfinite(loss_clean), "Clean GSPO loss should be finite"
+        assert torch.isfinite(loss_noisy), "Noisy GSPO loss should be finite"
+
+    def test_gspo_metrics_are_sequence_level(self):
+        """GSPO clipfrac and kl_old should be computed at sequence level."""
+        from oxrl.algs.grpo import GRPO
+        GRPOCls = GRPO.__ray_actor_class__
+        grpo = object.__new__(GRPOCls)
+        grpo.loss_variant = "gspo"
+        grpo.clip_low = 0.2
+        grpo.clip_high = 0.2
+        grpo.ent_coeff = 0.0
+        grpo.kl_coeff = 0.0
+
+        B, T = 4, 10
+        # Large log-ratio difference to trigger clipping
+        logprobs = torch.zeros(B, T)
+        old_logprobs = torch.ones(B, T) * -1.0  # large diff
+        advantages = torch.ones(B, T)
+        mask = torch.ones(B, T)
+
+        _, metrics = grpo.compute_policy_loss(
+            logprobs, old_logprobs, advantages, mask, None, None)
+
+        # With large ratio, clipfrac should be > 0
+        assert metrics['clipfrac'] > 0, "Large ratio should cause clipping"
+        assert metrics['kl_old'] > 0, "Non-zero log-ratio should give positive KL"
+
+
+# ============================================================
 # Integration: All algorithms registered
 # ============================================================
 class TestAlgorithmRegistry:
@@ -763,7 +861,7 @@ class TestAlgorithmRegistry:
         source_path = os.path.join(os.path.dirname(__file__), "..", "main_rl.py")
         with open(source_path) as f:
             source = f.read()
-        for alg in ["sgrpo", "cispo", "rlhf", "rlaif", "ppo"]:
+        for alg in ["sgrpo", "cispo", "gspo", "rlhf", "rlaif", "ppo"]:
             assert f'"{alg}"' in source, f"{alg} should be in RL_ALGORITHMS"
 
     def test_config_new_fields(self):

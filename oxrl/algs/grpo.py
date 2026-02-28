@@ -10,6 +10,11 @@ from transformers import AutoModelForCausalLM, AutoModelForImageTextToText, Auto
 from oxrl.utils.setup import load_model_and_ref
 from oxrl.algs.base import BaseAlgorithm
 
+# Group Relative Policy Optimization — no value head, uses group-normalized
+# rewards as advantages. Handles loss variants: sgrpo, gspo, cispo, rlhf, rlaif.
+# Pro:  simpler than PPO (no critic), works well with outcome-based rewards.
+# Con:  no per-token credit assignment; relies on reward normalization across
+#       the sample group. Works best with n_samples >= 4 per prompt.
 @ray.remote
 class GRPO(BaseAlgorithm):
     def __init__(self,
@@ -291,15 +296,33 @@ class GRPO(BaseAlgorithm):
         ratio   = torch.exp(logratio)
 
         # 3. compute loss based on variant
+        #
+        # sgrpo:  Token-level clipped surrogate (like PPO but no critic).
+        #         Default. Works well for dense models. Sensitive to per-token
+        #         log-prob drift, so avoid on MoE where vLLM vs HF routing diverges.
+        #
+        # gspo:   Sequence-level clipped surrogate. Averages log-ratios across
+        #         the sequence before clipping, so token-level MoE routing noise
+        #         cancels out. Use for MoE models (e.g. Qwen3-MoE, DeepSeek-V3).
+        #
+        # cispo:  Clipped ratio as detached weight on log-prob (policy-gradient style).
+        #         More conservative than sgrpo — ratio doesn't flow gradients.
+        #         Use when sgrpo shows reward hacking or unstable updates.
+        #
         if self.loss_variant == "sgrpo":
-            # SGRPO loss: -(min(ratio * adv, clip_adv)) * mask
             unclipped = ratio * adv
             clip_adv  = torch.clamp(ratio, 1.0 - self.clip_low, 1.0 + self.clip_high) * adv
             loss_pi   = -(torch.minimum(unclipped, clip_adv) * mask).sum() / denom
+        elif self.loss_variant == "gspo":
+            seq_lens = mask.sum(dim=-1).clamp(min=1.0)                       # [B]
+            seq_logratio = (logratio * mask).sum(dim=-1) / seq_lens          # [B]
+            seq_ratio = torch.exp(seq_logratio)                              # [B]
+            seq_adv = (adv * mask).sum(dim=-1) / seq_lens                    # [B]
+            seq_unclipped = seq_ratio * seq_adv                              # [B]
+            seq_clip_adv = torch.clamp(seq_ratio, 1.0 - self.clip_low,
+                                       1.0 + self.clip_high) * seq_adv      # [B]
+            loss_pi = -torch.minimum(seq_unclipped, seq_clip_adv).mean()     # scalar
         else:
-            # CISPO loss: clipped_ratio.detach() * log(pi) * advantage
-            # Unlike PPO, CISPO clips the importance ratio and uses it as a weighting
-            # coefficient for the policy's log-probability more like policy gradient.
             clipped_ratio = torch.clamp(ratio, 1.0 - self.clip_low, 1.0 + self.clip_high)
             loss_pi = -(clipped_ratio.detach() * logprobs * adv * mask).sum() / denom
 
@@ -315,17 +338,25 @@ class GRPO(BaseAlgorithm):
 
         # 5. useful metrics
         with torch.no_grad():
-            # first term too large ==> policy changed too much upward
-            # second term too small ==> policy changed too much downward
-            clipped_mask = (ratio > (1.0 + self.clip_high)) | (ratio < (1.0 - self.clip_low))
-            # fraction of masked tokens that ratio out of ranges
-            clipfrac = (clipped_mask.to(dtype=dtype) * mask).sum() / denom
+            if self.loss_variant == "gspo":
+                # Sequence-level metrics for GSPO
+                seq_clipped = (seq_ratio > (1.0 + self.clip_high)) | (seq_ratio < (1.0 - self.clip_low))
+                clipfrac = seq_clipped.to(dtype=dtype).mean()
+                seq_ratio_inv = torch.exp(-seq_logratio)
+                approx_kl = (seq_logratio + seq_ratio_inv - 1.0).to(dtype=dtype).mean()
+            else:
+                # Token-level metrics for SGRPO/CISPO
+                # first term too large ==> policy changed too much upward
+                # second term too small ==> policy changed too much downward
+                clipped_mask = (ratio > (1.0 + self.clip_high)) | (ratio < (1.0 - self.clip_low))
+                # fraction of masked tokens that ratio out of ranges
+                clipfrac = (clipped_mask.to(dtype=dtype) * mask).sum() / denom
 
-            # approx KL (var-reduced): log(pi/pi_old) + pi_old/pi - 1
-            # logratio = log(pi/pi_old)
-            ratio_inv = torch.exp(-logratio)
-            approx_kl_t = logratio + ratio_inv - 1.0
-            approx_kl = (approx_kl_t.to(dtype=dtype) * mask).sum() / denom
+                # approx KL (var-reduced): log(pi/pi_old) + pi_old/pi - 1
+                # logratio = log(pi/pi_old)
+                ratio_inv = torch.exp(-logratio)
+                approx_kl_t = logratio + ratio_inv - 1.0
+                approx_kl = (approx_kl_t.to(dtype=dtype) * mask).sum() / denom
 
             # save the metrics for debugging
             metrics = {

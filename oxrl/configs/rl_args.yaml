@@ -15,7 +15,17 @@ train:
   ###############
   # optimizer related arguments
   ###############
-  alg_name: "sgrpo" # options: sgrpo, cispo
+  # Algorithm options:
+  #   sgrpo  - Token-level clipped surrogate (default). Standard dense models.
+  #   gspo   - Sequence-level clipped surrogate. Use for MoE models to absorb
+  #            routing noise between vLLM and HF/DeepSpeed.
+  #   cispo  - Clipped ratio as weight on log-prob. More conservative updates,
+  #            use when sgrpo shows reward hacking or training instability.
+  #   ppo    - Full PPO with value head (GAE, critic loss). Higher memory/compute
+  #            cost. Use when you need fine-grained credit assignment.
+  #   rlhf   - Same as sgrpo. Alias for readability with reward-model setups.
+  #   rlaif  - Same as sgrpo. Alias for readability with AI-feedback setups.
+  alg_name: "sgrpo"
 
   # The optimizer related arguments will be automatically copied to deepspeed config or others
   # distributed training frameworks. this way make it easier to handle them in one place and avoid any duplication.
@@ -41,7 +51,8 @@ train:
   # Here, an "epoch" is defined by a fixed number of training steps, not a full sweep of the dataset.
   # Each epoch processes: train_steps_per_epoch * global_batch_size samples.
   total_number_of_epochs: 30
-  # number of training steps per epoch
+  # Number of training steps per epoch. Set to 1 for strict on-policy training
+  # (resample before every gradient update). Higher values reuse rollout data.
   train_steps_per_epoch: 5
 
   ###############
@@ -62,6 +73,27 @@ train:
 reward:
   broadcast: False
   eps_reward_norm: 1e-8
+  # Reward function options:
+  #   default_reward_func    - 1.0 if model stopped naturally (EOS), 0.0 otherwise.
+  #                            Use for sanity checks or when reward comes from external source.
+  #   gsm8k_reward_func      - Binary (1/0). Extracts numeric answer, compares to ground truth.
+  #                            Use for GSM8K and similar grade-school math datasets.
+  #   math_reward_func       - Binary (1/0). Extracts \boxed{} answer, exact string match.
+  #                            Use for MATH dataset / competition math.
+  #   soft_math_reward_func  - Graduated (1.0/0.5/0.2). Partial credit for close answers.
+  #                            Use when binary math reward is too sparse for learning.
+  #   code_reward_func       - Binary (1/0). Runs generated code against test cases.
+  #                            Use for MBPP / code-generation tasks. Requires test_cases in metadata.
+  #   format_reward_func     - 0-1.0 in 0.25 increments (length, structure, no "I", EOS).
+  #                            Use for instruction-following / style alignment tasks.
+  #   mcqa_reward_func       - Binary (1/0). Extracts answer letter, compares to ground truth.
+  #                            Use for MMLU-Pro / multiple-choice QA.
+  #   reasoning_reward_func  - 0-1.0 graduated. Rewards <think>/<answer> tags + correctness.
+  #                            Use for DeepSeek-R1 style chain-of-thought training.
+  #   multimodal_reward_func - 0-1.0. Correctness + 0.2 modality awareness fallback.
+  #                            Use for vision/audio tasks where modality grounding matters.
+  #   rm_reward_func         - Continuous. Scores via trained reward model (value head).
+  #                            Use for RLHF with a trained reward model. Requires reward_model_path.
   reward_func: default_reward_func
 
 rollout:
@@ -75,6 +107,8 @@ rollout:
   gpu_memory_utilization: 0.5
   stop_token_ids: []
   prompt_logprobs: False
+  # Enforces unbiased sampling (temp=1, top_p=1, top_k=-1). Controls sampling
+  # purity, not how many gradient steps per rollout (see train_steps_per_epoch).
   force_strict_on_policy: True
   # if model fits on one GPU, set it to 1, otherwise increase it until fits.
   tensor_parallel_size: 1

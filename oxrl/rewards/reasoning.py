@@ -4,7 +4,13 @@ from typing import Any, Dict, List, Optional, Tuple
 from oxrl.rewards.base import extract_math_answer, _normalize_math
 
 def reasoning_reward_func(prompt_ids: List[int], response_ids: List[int], finish_reason: Any, metadata: Optional[Dict] = None):
-    '''Reward function for reasoning models (DeepSeek-R1 style).'''
+    '''
+    Reasoning reward: 0.2 for <think> tags, 0.2 for <answer> tags, 0.6 for correctness.
+    Use for: training chain-of-thought / R1-style models that should show their work.
+    Pro:  rewards both process (thinking structure) and outcome (correct answer).
+    Con:  model can game tag rewards without real reasoning. Tune tag weight if needed.
+    Works best with math tasks. For non-math, pair with format_reward_func instead.
+    '''
     is_per_token = False
     r = torch.zeros((len(response_ids),), dtype=torch.float32)
     if len(response_ids) == 0 or not metadata:

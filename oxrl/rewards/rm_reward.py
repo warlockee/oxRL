@@ -31,7 +31,13 @@ def load_reward_model(rm_path: str, device: str = "cuda"):
     return model, value_head
 
 def rm_reward_func(prompt_ids, response_ids, finish_reason, metadata=None):
-    """Reward function using a trained reward model."""
+    """
+    Learned reward model: continuous score from a trained value head.
+    Use for: RLHF when no verifiable ground truth exists (open-ended generation, chat).
+    Pro:  captures nuanced quality beyond binary right/wrong.
+    Con:  reward hacking risk (model exploits RM weaknesses), requires a trained RM checkpoint.
+    Requires: call load_reward_model(path) before use. Set reward_model_path in config.
+    """
     global _rm_model, _rm_value_head
     is_per_token = False
     r = torch.zeros((len(response_ids),), dtype=torch.float32)

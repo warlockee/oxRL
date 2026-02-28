@@ -1,32 +1,17 @@
 run:
-  experiment_id: qwen3.5-35b-a3b_openr1_math_ec261c
-  training_gpus: 2
-  rollout_gpus: 2
-  checkpoint_dir: ./checkpoints/qwen3.5-35b-a3b_openr1_math_ec261c
-  tracking_uri: 
-  project_name: oxrl-exp
+  experiment_id: gspo_verify_run
+  training_gpus: 1
+  rollout_gpus: 1
+  checkpoint_dir: /tmp/gspo_test_ckpts
+  tracking_uri: ""
+  project_name: oxrl-test
   ray_address: null
-  ray_master_port: 29600
+  ray_master_port: 29700
   distributed_training_strategy: deepspeed-zero3
   seed: 42
 lora:
-  enabled: true
-  r: 16
-  lora_alpha: 32
-  lora_dropout: 0.05
-  target_modules:
-  - q_proj
-  - v_proj
-  - k_proj
-  - o_proj
-  - gate_proj
-  - up_proj
-  - down_proj
-  bias: none
-  task_type: CAUSAL_LM
+  enabled: false
 train:
-  # GSPO uses sequence-level importance ratios, which naturally averages out
-  # token-level MoE routing differences between vLLM and HF/DeepSpeed.
   alg_name: gspo
   optimizer_name: adamw
   lr: 1.0e-06
@@ -45,12 +30,12 @@ train:
   update_after_full_replay: true
   total_number_of_epochs: 1
   train_steps_per_epoch: 1
-  train_batch_size_per_gpu: 1
-  gradient_accumulation_steps: 4
-  val_batch_size_per_gpu: 16
+  train_batch_size_per_gpu: 2
+  gradient_accumulation_steps: 2
+  val_batch_size_per_gpu: 4
   normalize_loss: true
 model:
-  name: Qwen/Qwen3.5-35B-A3B
+  name: Qwen/Qwen2.5-0.5B-Instruct
   dtype: bfloat16
   ref_model: ''
   ref_model_offload_to_cpu: true
@@ -61,36 +46,37 @@ model:
   attn_implementation: eager
 data:
   train_dnames:
-  - openr1_math_qwen3.5-35b-a3b_wsp_train
+  - gsm8k_qwen2.5-0.5b-instruct_wsp_train
   train_ratios:
-    openr1_math_qwen3.5-35b-a3b_wsp_train: 1.0
-  train_files_path: ./data/openr1_math_qwen3.5-35b-a3b_wsp_train_onboard.parquet
-  val_files_path: ./data/openr1_math_qwen3.5-35b-a3b_wsp_test.parquet
+    gsm8k_qwen2.5-0.5b-instruct_wsp_train: 1.0
+  train_files_path: ./data/gsm8k_qwen2.5-0.5b-instruct_wsp_train.parquet
+  val_files_path: ./data/gsm8k_qwen2.5-0.5b-instruct_wsp_test.parquet
+  max_seq_len: 512
   num_workers: 4
-  max_seq_len: 1024
+  max_seq_len: 512
   prompt_key: prompt
   answer_key: answer
 reward:
   broadcast: false
   eps_reward_norm: 1.0e-08
-  reward_func: reasoning_reward_func
+  reward_func: gsm8k_reward_func
 rollout:
   temperature: 1.0
-  max_tokens: 1024
-  n_samples: 2
+  max_tokens: 512
+  n_samples: 4
   top_p: 1.0
   top_k: -1
   ignore_eos: false
   stop: ''
-  gpu_memory_utilization: 0.85
+  gpu_memory_utilization: 0.4
   stop_token_ids: []
   prompt_logprobs: false
   force_strict_on_policy: true
   tensor_parallel_size: 1
-  rollout_batch_size_per_gpu: 2
+  rollout_batch_size_per_gpu: 16
 deepspeed:
   zero_optimization:
-    stage: 2
+    stage: 3
     stage3_param_persistence_threshold: 100000.0
     stage3_prefetch_bucket_size: 50000000.0
     offload_optimizer:
