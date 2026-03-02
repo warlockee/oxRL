@@ -123,13 +123,14 @@ class TestBug2GRPOConfigLR:
         assert "@ray.remote" not in source, "SimPO should not be a Ray actor (SL path)"
 
     def test_main_rl_passes_optimizer_params(self):
-        path = os.path.join(os.path.dirname(__file__), "..", "main_rl.py")
+        # Optimizer param passing moved from main_rl.py to oxrl/setup/engine_factory.py
+        path = os.path.join(os.path.dirname(__file__), "..", "oxrl", "setup", "engine_factory.py")
         with open(path) as f:
             source = f.read()
-        assert "'lr':params.train.lr" in source, "main_rl.py should pass lr from config"
-        assert "'betas':params.train.betas" in source, "main_rl.py should pass betas from config"
-        assert "'weight_decay':params.train.weight_decay" in source
-        assert "'adam_epsilon':params.train.adam_epsilon" in source
+        assert '"lr": params.train.lr' in source or "'lr':params.train.lr" in source, "engine_factory.py should pass lr from config"
+        assert '"betas": params.train.betas' in source or "'betas':params.train.betas" in source, "engine_factory.py should pass betas from config"
+        assert "params.train.weight_decay" in source
+        assert "params.train.adam_epsilon" in source
 
 
 # ============================================================
@@ -591,7 +592,8 @@ class TestRLHF:
         assert load_reward_model is not None
 
     def test_rlhf_registered_in_rl_algorithms(self):
-        source_path = os.path.join(os.path.dirname(__file__), "..", "main_rl.py")
+        # RL_ALGORITHMS moved to oxrl/setup/engine_factory.py
+        source_path = os.path.join(os.path.dirname(__file__), "..", "oxrl", "setup", "engine_factory.py")
         with open(source_path) as f:
             source = f.read()
         assert '"rlhf"' in source, "RLHF should be registered in RL_ALGORITHMS"
@@ -755,7 +757,8 @@ class TestGSPO:
     """Tests for GSPO loss variant — sequence-level optimization for MoE models."""
 
     def test_gspo_registered_in_rl_algorithms(self):
-        source_path = os.path.join(os.path.dirname(__file__), "..", "main_rl.py")
+        # RL_ALGORITHMS moved to oxrl/setup/engine_factory.py
+        source_path = os.path.join(os.path.dirname(__file__), "..", "oxrl", "setup", "engine_factory.py")
         with open(source_path) as f:
             source = f.read()
         assert '"gspo"' in source, "GSPO should be registered in RL_ALGORITHMS"
@@ -858,7 +861,8 @@ class TestAlgorithmRegistry:
             assert f'"{alg}"' in source, f"{alg} should be in SL_ALGORITHMS"
 
     def test_rl_algorithms_count(self):
-        source_path = os.path.join(os.path.dirname(__file__), "..", "main_rl.py")
+        # RL_ALGORITHMS moved to oxrl/setup/engine_factory.py
+        source_path = os.path.join(os.path.dirname(__file__), "..", "oxrl", "setup", "engine_factory.py")
         with open(source_path) as f:
             source = f.read()
         for alg in ["sgrpo", "cispo", "gspo", "rlhf", "rlaif", "ppo"]:

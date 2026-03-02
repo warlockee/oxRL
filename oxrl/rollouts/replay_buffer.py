@@ -3,7 +3,7 @@ from typing import Dict, Optional, Any, List
 from torch.utils.data import Dataset
 
 # local imports
-from oxrl.utils.utils import ensure_1d, pad_1d_to_length
+from oxrl.tools.tensor_utils import ensure_1d, pad_1d_to_length
 
 class ReplayBuffer(Dataset):
     '''

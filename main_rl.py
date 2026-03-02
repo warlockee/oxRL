@@ -1,364 +1,95 @@
+"""
+oxRL — RL training orchestrator.
+
+Thin entry point that wires together setup, rollout, training, and checkpoint phases.
+Each phase lives in its own module under oxrl/setup/ and oxrl/loops/.
+"""
 import os
-import numpy as np
 import argparse
 import importlib
-import torch
-from torch.utils.data import DataLoader, DistributedSampler
-from tqdm import tqdm
-import ray
 import time
+import numpy as np
+import ray
 
-# imports local methods, classes, etc.
-import oxrl.configs.load as cfg # all config arguments
-from oxrl.datasets.prompt_only import PromptOnlyDataset
-from oxrl.utils.utils import safe_string_to_torch_dtype, get_experiment_dir_name
-from oxrl.rollouts.vllm_engine import VLLMRolloutEngine
-from oxrl.rollouts.replay_buffer import ReplayBuffer
+import oxrl.configs.load as cfg
+from oxrl.utils.utils import get_experiment_dir_name
 from oxrl.utils.logging import setup_logging, setup_mlflow, log_metrics, end_run
-from oxrl.utils.setup import set_random_seeds, get_rank_info, load_tokenizer, load_model_and_ref
-from oxrl.algs.grpo import GRPO
-from oxrl.algs.ppo import PPO
+from oxrl.utils.setup import set_random_seeds, get_rank_info, load_tokenizer
+from oxrl.rollouts.replay_buffer import ReplayBuffer
 
-def setup_ray(ray_address):
-    '''
-       Initialize ray cluster and setup master address.
-    '''
-    if ray_address:
-        ray.init(address=ray_address, ignore_reinit_error=True)
-    else:
-        # Use a unique temp directory to avoid connecting to other clusters
-        import tempfile
-        import getpass
-        user = getpass.getuser()
-        ray_temp_dir = os.path.join("/tmp", f"ray_{user}_{int(time.time())}")
-        os.makedirs(ray_temp_dir, exist_ok=True)
-        ray.init(ignore_reinit_error=True, _temp_dir=ray_temp_dir)
+from oxrl.setup.ray_setup import setup_ray
+from oxrl.setup.engine_factory import get_algorithm_class, training_engine_setup, rollout_engine_setup
+from oxrl.setup.dataloader_factory import rollout_dataloader_setup
+from oxrl.loops.rollout_phase import collect_rollouts
+from oxrl.loops.train_phase import run_training_steps
+from oxrl.loops.checkpoint_phase import save_and_refresh
 
-    try:
-        master_addr = ray.util.get_node_ip_address()
-    except Exception:
-        print("Warning: Could not get master address, using localhost")
-        master_addr = "127.0.0.1"
-
-    return ray, master_addr
-
-def training_engine_setup(params, alg, world_size, master_addr, master_port):
-    '''
-        This function is responsible for running the training engine.
-    '''
-    kwargs = { # model relataed arguments
-               'model_path':params.model.name,
-               'ref_model_path':params.model.ref_model,
-               'model_dtype':safe_string_to_torch_dtype(params.model.dtype),
-               'trust_remote_code':params.model.trust_remote_code,
-               'attn_impl':params.model.attn_implementation,
-               'use_cache':params.model.use_cache,
-
-               # training related arguments
-               'kl_coeff':params.train.kl_coeff,
-               'clip_low':params.train.clip_low,
-               'clip_high':params.train.clip_high,
-               'entropy_coeff':params.train.entropy_coeff,
-               'micro_batch_size_per_gpu':params.train.train_batch_size_per_gpu,
-               'update_after_full_replay':params.train.update_after_full_replay,
-
-               # deepspeed related arguments
-               'deepspeed_config':params.deepspeed,
-               'deepspeed_ref_config':params.deepspeed_ref,
-               'lora_config': params.lora,
-
-               # algorithm related arguments
-               'loss_variant':params.train.alg_name.lower(),
-
-               # optimizer hyperparameters
-               'lr':params.train.lr,
-               'betas':params.train.betas,
-               'weight_decay':params.train.weight_decay,
-               'adam_epsilon':params.train.adam_epsilon,
-    }
-    # PPO needs different kwargs than GRPO
-    if params.train.alg_name.lower() == "ppo":
-        kwargs['vf_clip'] = params.train.ppo_vf_clip
-        kwargs['tau'] = params.train.ppo_tau
-        kwargs['gamma'] = params.train.ppo_gamma
-
-    # setup ray runners
-    ray_runners = []
-    for rank in range(world_size):
-        ray_vars = {"MASTER_ADDR": master_addr,
-                    "MASTER_PORT": str(master_port),
-                    "RANK": str(rank),
-                    "WORLD_SIZE": str(world_size),
-                    "LOCAL_RANK": "0",
-                    "DS_SKIP_CUDA_CHECK": "1",}
-        # Forward HF tokens and CUDA_HOME to Ray workers
-        for _env_key in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "CUDA_HOME"):
-            if os.environ.get(_env_key):
-                ray_vars[_env_key] = os.environ[_env_key]
-        runner = alg.options(num_gpus=1, runtime_env={"env_vars": ray_vars}).remote(**kwargs)
-        ray_runners.append(runner)
-
-    return ray_runners
-
-def rollout_engine_setup(params, reward_fnc, eos_id):
-    '''
-        This function is responsible for setting up distributed
-        inference/rollout/generation engine.
-    '''
-    tp = int(params.rollout.tensor_parallel_size)
-    rollout_gpus = int(params.run.rollout_gpus)
-
-    kwargs = { # model related arguments
-              "model_path":params.model.name,
-              "trust_remote_code":params.model.trust_remote_code,
-
-              # experiment setup related arguments
-              "seed":params.run.seed,
-
-              # rollout generation related arguments
-              "temperature":params.rollout.temperature,
-              "max_tokens":params.rollout.max_tokens,
-              "n_samples":params.rollout.n_samples,
-              "top_p":params.rollout.top_p,
-              "top_k":params.rollout.top_k,
-              "ignore_eos":params.rollout.ignore_eos,
-              "stop":params.rollout.stop,
-              "stop_token_ids":params.rollout.stop_token_ids,
-              "prompt_logprobs":params.rollout.prompt_logprobs,
-              "gpu_memory_utilization":params.rollout.gpu_memory_utilization,
-              "force_strict_on_policy":params.rollout.force_strict_on_policy,
-              "eos_id":eos_id,
-              "tensor_parallel_size":tp,
-
-              # reward related arguments
-              "reward_func":reward_fnc,
-              "reward_broadcast":params.reward.broadcast,
-              "eps_reward_norm":params.reward.eps_reward_norm,
-
-            }
-
-    num_rollout_engines = max(1, rollout_gpus // tp)
-    # Forward HF tokens and essential env vars to rollout workers
-    _rollout_env_vars = {"VLLM_USE_V1": "0"}
-    for _env_key in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "CUDA_HOME"):
-        if os.environ.get(_env_key):
-            _rollout_env_vars[_env_key] = os.environ[_env_key]
-    rollout_engines = []
-    for i in range(num_rollout_engines):
-        kwargs['engine_id'] = i
-        _rollout_opts = {"num_gpus": tp}
-        if _rollout_env_vars:
-            _rollout_opts["runtime_env"] = {"env_vars": _rollout_env_vars}
-        rollout_engines.append(VLLMRolloutEngine.options(**_rollout_opts).remote(**kwargs))
-
-    return num_rollout_engines, rollout_engines
-
-def rollout_dataloader_setup(params, tokenizer, num_rollout_engines):
-    '''
-       This dataloader is used for rollout generation which would be used to train the policy.
-    '''
-    # 1. Initialize our custom datasets
-    prompt_ds = PromptOnlyDataset(prompt_key=params.data.prompt_key,
-                                  max_seq_len=params.data.max_seq_len,
-                                  tokenizer=tokenizer,
-                                  data_path=params.data.train_files_path,
-                                  return_text=False,
-                                  answer_key=params.data.answer_key,
-                                  model_name=params.model.name)
-
-    # since we split the data across the rollout engines
-    bsz = num_rollout_engines * params.rollout.rollout_batch_size_per_gpu
-    dataloader = DataLoader(dataset=prompt_ds,
-                            batch_size=bsz,
-                            num_workers=params.data.num_workers,
-                            shuffle=True,
-                            pin_memory=True,
-                            drop_last=False,
-                            collate_fn=prompt_ds.collate_fn,
-                            )
-
-    return dataloader
-
-def collect_rollouts(rollout_dataloader,
-                     num_rollout_engines,
-                     rollout_engines,
-                     epoch,
-                     policy_version,
-                     replay_buffer,
-                     ray_agent):
-    '''
-        This function is used to run rollout engine and generate rollouts/samples.
-    '''
-    assert num_rollout_engines == len(rollout_engines), 'Number of rollout engines does not match with the number of rollout engines'
-
-    rollout_start_time = time.time()
-    total_samples_generated = 0
-    total_reward_sum = 0.0
-    total_response_len = 0
-
-    # Note dataLoader's batch_size is already num_rollout_engines * rollout_batch_size,
-    batch_size   = rollout_dataloader.batch_size
-    dataset_size = len(rollout_dataloader.dataset)
-    num_steps_to_generate_all = (dataset_size + batch_size - 1) // batch_size
-
-    print(
-        f"[Rollout Stats] Dataset size: {dataset_size} | "
-        f"Batch size: {batch_size} "
-        f"({num_rollout_engines} engines × {batch_size // num_rollout_engines} per engine), "
-        f"Steps to generate all samples: {num_steps_to_generate_all}"
-    )
-
-    for rollout_batch in rollout_dataloader:
-        # 1. split data across rollout engines
-        # recall: num_rollout_engines  = max(1, int(rollout_gpus) // tensor_parallel_size)
-        # and rollout_batch is a list of dictionaries.
-        shard_size = (len(rollout_batch) + num_rollout_engines - 1) // num_rollout_engines
-        # it is not necessary to have equal number of samples per engine, though they can't be empty.
-        rollout_shards = [rollout_batch[i * shard_size:(i + 1) * shard_size] for i in range(num_rollout_engines)]
-        rollout_shards = [shard for shard in rollout_shards if len(shard) > 0]
-
-        # 2. schedule rollout generation
-        rollout_samples = []
-        for i, shard in enumerate(rollout_shards):
-            rollout_samples.append(rollout_engines[i].generate.remote(prompts=shard,
-                                                                      current_iter=epoch,
-                                                                      policy_version=policy_version))
-
-        # 3. gather rollouts
-        rollout_lists = ray_agent.get(rollout_samples)
-
-        # 4. merge rollouts across all engines and collect stats
-        rollout_merged = []
-        for rl in rollout_lists:
-            rollout_merged.extend(rl)
-            for sample in rl:
-                total_samples_generated += 1
-                total_reward_sum += sample['rewards'].sum().item()
-                total_response_len += sample['response_len']
-
-        # 5. now add them to replay buffer
-        replay_buffer.add_batch_seqs(rollout_merged)
-
-    rollout_time = time.time() - rollout_start_time
-    avg_reward = total_reward_sum / max(1, total_samples_generated)
-    avg_response_len = total_response_len / max(1, total_samples_generated)
-
-    if len(replay_buffer) <= 1:
-        raise ValueError("Replay buffer is empty")
-
-    return {"total_samples_generated": total_samples_generated,
-            "avg_reward": avg_reward,
-            "avg_response_len": avg_response_len,
-            "rollout_time": rollout_time}
 
 def main(config_file, experiment_id, log_level="INFO"):
-    ########
     # 1. Miscellaneous setups
-    ########
     rank, local_rank = get_rank_info()
-
-    # Setup logging
     logger = setup_logging(rank=rank, log_level=log_level)
-    logger.info(f"Starting RL training...")
+    logger.info("Starting RL training...")
 
-    config = cfg.load_and_verify(method="rl",
-                                 input_yaml=config_file,
-                                 experiment_id=experiment_id,
-                                 )
+    config = cfg.load_and_verify(method="rl", input_yaml=config_file, experiment_id=experiment_id)
     set_random_seeds(seed=config.run.seed)
-
-    # Setup MLflow (only on rank 0)
     mlflow_run = setup_mlflow(config=config, tracking_uri=config.run.tracking_uri, rank=rank)
     logger.info(f"Config loaded. experiment_id: {config.run.experiment_id}")
 
-    # number of gpus for training which is used by deepspeed
     training_gpus = config.run.training_gpus
-    # number of gpus for rollout generation which is used by vllm
-    rollout_gpus  = config.run.rollout_gpus
+    rollout_gpus = config.run.rollout_gpus
 
-    ########
-    # 2. initialize ray
-    ########
-    logger.info(f"Initializing Ray cluster...")
+    # 2. Initialize Ray
+    logger.info("Initializing Ray cluster...")
     ray_engine, master_addr = setup_ray(ray_address=config.run.ray_address)
     logger.info(f"Ray initialized. Master address: {master_addr}")
 
-    ########
-    # 3. initialize training engine
-    ########
+    # 3. Initialize training engine
     logger.info(f"Setting up training algorithm: {config.train.alg_name}")
-
-    # sgrpo:  token-level clipped surrogate — default for dense models
-    # gspo:   sequence-level clipped surrogate — use for MoE models (absorbs routing noise)
-    # cispo:  clipped ratio as weight on log-prob — more conservative updates
-    # ppo:    full PPO with value head + GAE — higher cost, finer credit assignment
-    # rlhf/rlaif: sgrpo aliases for readability
-    RL_ALGORITHMS = {"sgrpo": GRPO, "cispo": GRPO, "gspo": GRPO, "rlhf": GRPO, "rlaif": GRPO, "ppo": PPO}
-
-    alg_name = config.train.alg_name.lower()
-    if alg_name not in RL_ALGORITHMS:
-        raise ValueError(f"Unknown algorithm: {alg_name}. Available: {list(RL_ALGORITHMS)}")
-    alg = RL_ALGORITHMS[alg_name]
-
-    training_engine_runners = training_engine_setup(params=config,
-                                                    alg=alg,
-                                                    world_size=training_gpus,
-                                                    master_addr=master_addr,
-                                                    master_port=config.run.ray_master_port)
-
-    assert len(training_engine_runners) == training_gpus, "Number of training engines does not match number of training gpus"
+    alg = get_algorithm_class(config.train.alg_name)
+    training_engine_runners = training_engine_setup(
+        params=config, alg=alg, world_size=training_gpus,
+        master_addr=master_addr, master_port=config.run.ray_master_port,
+    )
+    assert len(training_engine_runners) == training_gpus
     logger.info(f"Created {len(training_engine_runners)} training engine runners")
 
-    # Synchronization barrier to prevent deepspeed rendezvous hang
-    # wait for all training actors to finish initialization before proceeding
+    # Wait for initialization barrier
     logger.info("Waiting for all training engines to initialize...")
-
-    ready_checks = [engine.is_ready.remote() for engine in training_engine_runners]
-    ready = ray.get(ready_checks)
+    ready = ray.get([engine.is_ready.remote() for engine in training_engine_runners])
     logger.info("All training engines ready!")
 
-    ########
-    # 5. load tokenizer
-    ########
+    # 4. Load tokenizer
     logger.info(f"Loading tokenizer from {config.model.name}")
-    tokenizer = load_tokenizer(model_name=config.model.name,
-                               trust_remote_code=config.model.trust_remote_code,
-                               rank=rank)
-    logger.info(f"Tokenizer loaded. Vocab size: {tokenizer.vocab_size}, Pad token ID: {tokenizer.pad_token_id}")
+    tokenizer = load_tokenizer(
+        model_name=config.model.name, trust_remote_code=config.model.trust_remote_code, rank=rank,
+    )
+    logger.info(f"Tokenizer loaded. Vocab size: {tokenizer.vocab_size}")
 
-    ########
-    # 6. initialize inference engine
-    ########
+    # 5. Initialize rollout engines
     logger.info("Setting up inference/rollout engines...")
-    if config.reward.reward_func:
-        reward_module = importlib.import_module("oxrl.rewards")
-        reward_fnc = getattr(reward_module, config.reward.reward_func)
-        logger.info(f"Using reward function: {config.reward.reward_func}")
-
-    else:
+    if not config.reward.reward_func:
         raise ValueError("Reward function not specified")
+    reward_module = importlib.import_module("oxrl.rewards")
+    reward_fnc = getattr(reward_module, config.reward.reward_func)
+    logger.info(f"Using reward function: {config.reward.reward_func}")
 
-    num_rollout_engines, rollout_engines = rollout_engine_setup(params=config, reward_fnc=reward_fnc, eos_id=tokenizer.eos_token_id)
+    num_rollout_engines, rollout_engines = rollout_engine_setup(
+        params=config, reward_fnc=reward_fnc, eos_id=tokenizer.eos_token_id,
+    )
     logger.info(f"Created {num_rollout_engines} rollout engines")
 
-    ########
-    # 7. Load the rollout dataloader and initialize replay buffer
-    ########
-    logger.info(f"Created {num_rollout_engines} rollout engines with tensor_parallel_size={config.rollout.tensor_parallel_size}")
-    logger.info(f"Loading rollout dataloader from {config.data.train_files_path}")
-    rollout_dataloader = rollout_dataloader_setup(params=config,
-                                                  tokenizer=tokenizer,
-                                                  num_rollout_engines=num_rollout_engines)
+    # 6. Dataloader and replay buffer
+    rollout_dataloader = rollout_dataloader_setup(
+        params=config, tokenizer=tokenizer, num_rollout_engines=num_rollout_engines,
+    )
     logger.info(f"Rollout dataloader ready. Total batches per epoch: {len(rollout_dataloader)}")
 
-    replay_buffer = ReplayBuffer(pad_token_id=tokenizer.pad_token_id,
-                                 max_seq_len=config.data.max_seq_len)
-    logger.info("Replay buffer initialized")
-    ########
-    # 7. Training and evaluation loop
-    ########
+    replay_buffer = ReplayBuffer(pad_token_id=tokenizer.pad_token_id, max_seq_len=config.data.max_seq_len)
+
+    # 7. Training loop
     policy_version = 0
-    number_of_epochs  = config.train.total_number_of_epochs
+    number_of_epochs = config.train.total_number_of_epochs
     number_of_training_steps_per_epoch = config.train.train_steps_per_epoch
     global_step = 0
 
@@ -371,222 +102,86 @@ def main(config_file, experiment_id, log_level="INFO"):
         epoch_start_time = time.time()
         logger.info(f"[Epoch {epoch+1}/{number_of_epochs}] Starting rollout generation...")
 
-        ################
-        # 1. Rollout generation and Sample collection
-        ################
-        rollout_stats = collect_rollouts(rollout_dataloader=rollout_dataloader,
-                                         num_rollout_engines=num_rollout_engines,
-                                         rollout_engines=rollout_engines,
-                                         epoch=epoch,
-                                         policy_version=policy_version,
-                                         replay_buffer=replay_buffer,
-                                         ray_agent=ray)
-
-        logger.info(f"[Epoch {epoch+1}] Rollout complete: {rollout_stats['total_samples_generated']} samples, "
-                    f"avg_reward={rollout_stats['avg_reward']:.4f}, avg_response_len={rollout_stats['avg_response_len']:.1f}, "
-                    f"time={rollout_stats['rollout_time']:.2f}s")
+        # Phase 1: Rollout
+        rollout_stats = collect_rollouts(
+            rollout_dataloader=rollout_dataloader,
+            num_rollout_engines=num_rollout_engines,
+            rollout_engines=rollout_engines,
+            epoch=epoch, policy_version=policy_version,
+            replay_buffer=replay_buffer, ray_agent=ray,
+        )
+        logger.info(
+            f"[Epoch {epoch+1}] Rollout complete: {rollout_stats['total_samples_generated']} samples, "
+            f"avg_reward={rollout_stats['avg_reward']:.4f}, time={rollout_stats['rollout_time']:.2f}s"
+        )
 
         if len(replay_buffer) <= 1:
             raise ValueError("Replay buffer is empty")
 
-        ################
-        # Data and batch preperation for training
-        ################
+        # Phase 2: Training
         logger.info(f"[Epoch {epoch+1}] Starting training on {len(replay_buffer)} replay buffer samples...")
         train_start_time = time.time()
 
-        # Create dataloader from replay buffer and convert to list as ray needs serializable data
-        train_batches = list(DataLoader(dataset=replay_buffer,
-                                        batch_size=config.train.train_batch_size_per_gpu,
-                                        shuffle=True,
-                                        num_workers=0,
-                                        pin_memory=False,
-                                        collate_fn=replay_buffer.collate_fn,
-                                        ))
-        logger.info(f"[Epoch {epoch+1}] Created {len(train_batches)} training batches")
+        epoch_metrics, global_step = run_training_steps(
+            training_engine_runners=training_engine_runners,
+            replay_buffer=replay_buffer,
+            train_batch_size_per_gpu=config.train.train_batch_size_per_gpu,
+            number_of_training_steps=number_of_training_steps_per_epoch,
+            epoch=epoch, global_step=global_step,
+            logger=logger, rank=rank, mlflow_run=mlflow_run, log_metrics_fn=log_metrics,
+        )
 
-        # We need to ensure all ranks/gpus get EQUAL number of batches to prevent deepspeed hang so we pad the batches
-        # which are not divisible by num_train_engines
-        num_train_engines = len(training_engine_runners)
-        num_batches = len(train_batches)
-        batches_per_engine = (num_batches + num_train_engines - 1) // num_train_engines
-        total_batches_needed = batches_per_engine * num_train_engines
-
-        if total_batches_needed > num_batches:
-            # Pad by repeating the last batch
-            padding = [train_batches[-1]] * (total_batches_needed - num_batches)
-            train_batches_padded = train_batches + padding
-
-        else:
-            train_batches_padded = train_batches
-
-        ################
-        # Policy learning and training
-        ################
-        epoch_metrics = {'loss_total': [], 'loss_pi': [], 'loss_ent': [],
-                         'kl_ref': [], 'kl_old': [], 'clipfrac': []}
-        for tidx in range(number_of_training_steps_per_epoch):
-
-            # Schedule training engines to run update step
-            train_futures = []
-            for eid, engine in enumerate(training_engine_runners):
-                # Send equal number of batches to each training engine
-                # [eid::step]: num_train_engines = 2 and 6 batches: [B0, B1, B2, B3, B4, B5]
-                # [0::2] -> [B0, B2, B4]
-                # [1::2] -> [B1, B3, B5]
-                shard = train_batches_padded[eid::num_train_engines]
-
-                # All ranks MUST participate in training, hence no empty shards
-                assert len(shard) > 0, f"Engine {eid} has empty shard - this will cause DeepSpeed hang"
-                train_futures.append(engine.train_step.remote(engine_id=eid, micro_batches=shard))
-
-            # Gather training metrics from all engines
-            # train_metrics: clipfrac, kl_old, kl_ref, loss_ent, loss_pi, loss_total
-            train_metrics = ray.get(train_futures)
-
-            # Aggregate metrics across all training engines
-            avg_loss     = np.mean([m.get('loss_total', 0.0) for m in train_metrics])
-            avg_loss_pi  = np.mean([m.get('loss_pi', 0.0) for m in train_metrics])
-            avg_loss_ent = np.mean([m.get('loss_ent', 0.0) for m in train_metrics])
-            avg_kl_ref   = np.mean([m.get('kl_ref', 0.0) for m in train_metrics])
-            avg_kl_old   = np.mean([m.get('kl_old', 0.0) for m in train_metrics])
-            avg_clipfrac = np.mean([m.get('clipfrac', 0.0) for m in train_metrics])
-
-            # Epoch average of average across all training engines
-            epoch_metrics['loss_total'].append(avg_loss)
-            epoch_metrics['loss_pi'].append(avg_loss_pi)
-            epoch_metrics['loss_ent'].append(avg_loss_ent)
-            epoch_metrics['kl_ref'].append(avg_kl_ref)
-            epoch_metrics['kl_old'].append(avg_kl_old)
-            epoch_metrics['clipfrac'].append(avg_clipfrac)
-
-            global_step += 1
-
-            # Log to console every 10 steps
-            if tidx % 10 == 0:
-                logger.info(f"[Epoch {epoch+1}][Step {tidx+1}/{number_of_training_steps_per_epoch}] "
-                           f"loss={avg_loss:.4f}, pi_loss={avg_loss_pi:.4f}, ent_loss={avg_loss_ent:.4f}, "
-                           f"kl_ref={avg_kl_ref:.4f}, kl_old={avg_kl_old:.6f}, clipfrac={avg_clipfrac:.4f}")
-
-            # Log to MLflow every step (only rank 0)
-            if rank == 0 and mlflow_run:
-                log_metrics({
-                    "train/loss_total": avg_loss,
-                    "train/loss_pi": avg_loss_pi,
-                    "train/loss_ent": avg_loss_ent,
-                    "train/kl_ref": avg_kl_ref,
-                    "train/kl_old": avg_kl_old,
-                    "train/clipfrac": avg_clipfrac,
-                }, step=global_step)
-
-        # 4. update policy version and reset replay buffer
         policy_version += 1
-        # All RL algorithms are on-policy; always reset to avoid stale data.
         replay_buffer.reset()
 
-        # Log epoch summary
         train_time = time.time() - train_start_time
         epoch_time = time.time() - epoch_start_time
+        epoch_avg_loss = np.mean(epoch_metrics["loss_total"])
 
-        epoch_avg_loss = np.mean(epoch_metrics['loss_total'])
-        epoch_avg_kl_old = np.mean(epoch_metrics['kl_old'])
-        epoch_avg_kl_ref = np.mean(epoch_metrics['kl_ref'])
-        epoch_avg_clipfrac = np.mean(epoch_metrics['clipfrac'])
+        logger.info(
+            f"[Epoch {epoch+1}] Training complete: time={train_time:.2f}s, avg_loss={epoch_avg_loss:.4f}"
+        )
 
-        logger.info(f"[Epoch {epoch+1}] Training complete: time={train_time:.2f}s, "
-                    f"avg_loss={epoch_avg_loss:.4f}, avg_kl_ref={epoch_avg_kl_ref:.4f}, avg_kl_old={epoch_avg_kl_old:.6f}")
-
-        # Log epoch metrics to MLflow
+        # Log epoch metrics
         if rank == 0 and mlflow_run:
             log_metrics({
-                    "epoch/avg_loss": epoch_avg_loss,
-                    "epoch/avg_kl_old": epoch_avg_kl_old,
-                    "epoch/avg_kl_ref": epoch_avg_kl_ref,
-                    "epoch/avg_clipfrac": epoch_avg_clipfrac,
-                    "epoch/avg_reward": rollout_stats['avg_reward'],
-                    "epoch/avg_response_len": rollout_stats['avg_response_len'],
-                    "epoch/total_samples": rollout_stats['total_samples_generated'],
-                    "epoch/rollout_time_sec": rollout_stats['rollout_time'],
-                    "epoch/train_time_sec": train_time,
-                    "epoch/total_time_sec": epoch_time,
-                    }, step=epoch + 1)
+                "epoch/avg_loss": epoch_avg_loss,
+                "epoch/avg_kl_old": np.mean(epoch_metrics["kl_old"]),
+                "epoch/avg_kl_ref": np.mean(epoch_metrics["kl_ref"]),
+                "epoch/avg_clipfrac": np.mean(epoch_metrics["clipfrac"]),
+                "epoch/avg_reward": rollout_stats["avg_reward"],
+                "epoch/avg_response_len": rollout_stats["avg_response_len"],
+                "epoch/total_samples": rollout_stats["total_samples_generated"],
+                "epoch/rollout_time_sec": rollout_stats["rollout_time"],
+                "epoch/train_time_sec": train_time,
+                "epoch/total_time_sec": epoch_time,
+            }, step=epoch + 1)
 
-        ################
-        # Save current policy + refresh rollout engines
-        ################
+        # Phase 3: Checkpoint + Refresh
         tag = f"iter{epoch+1:06d}_v{policy_version:06d}"
-        model_path = get_experiment_dir_name(output_dir=config.run.checkpoint_dir, tag=tag, experiment_id=config.run.experiment_id)
+        model_path = get_experiment_dir_name(
+            output_dir=config.run.checkpoint_dir, tag=tag, experiment_id=config.run.experiment_id,
+        )
         logger.info(f"[Epoch {epoch+1}] Saving checkpoint to {model_path}")
 
-        # 1. Gather state dict in memory (all ranks participate — collective op)
-        try:
-            gather_futures = [engine.gather_state_dict.remote() for engine in training_engine_runners]
-            gather_results = ray.get(gather_futures)
-            state_dict = next((r for r in gather_results if r is not None), None)
-        except Exception as e:
-            logger.warning(f"[Epoch {epoch+1}] gather_state_dict failed ({e}), falling back to disk-based flow")
-            state_dict = None
-
-        if state_dict is not None:
-            # 2. Pop metadata, put weights in Ray object store
-            config_dict = state_dict.pop("__model_config_dict__", None)
-            value_head_sd = state_dict.pop("__value_head_state_dict__", None)
-            state_dict_ref = ray.put(state_dict)
-            del state_dict  # free driver memory
-
-            # 3. PARALLEL: disk save + rollout refresh
-            if rank == 0:
-                os.makedirs(model_path, exist_ok=True)
-                tokenizer.save_pretrained(model_path)
-                # Save model config.json (popped from state_dict before ray.put)
-                if config_dict is not None:
-                    import json as _json
-                    with open(os.path.join(model_path, "config.json"), "w") as _f:
-                        _json.dump(config_dict, _f, indent=2)
-                    logger.info(f"[Epoch {epoch+1}] Saved config.json to {model_path}")
-
-            save_futures = [engine.save_checkpoint.remote(output_dir=model_path, tag=tag, state_dict_ref=state_dict_ref)
-                            for engine in training_engine_runners]
-            refresh_futures = [eng.refresh_model_from_state_dict.remote(state_dict_ref, config_dict, policy_version)
-                               for eng in rollout_engines]
-            ray.get(save_futures + refresh_futures)
-
-            # 4. Save value head to disk if PPO
-            if rank == 0 and value_head_sd is not None:
-                torch.save(value_head_sd, os.path.join(model_path, "value_head.pt"))
-                logger.info(f"[Epoch {epoch+1}] Value head saved to {model_path}")
-
-        else:
-            # Fallback: sequential disk-based flow (original behavior)
-            if rank == 0:
-                os.makedirs(model_path, exist_ok=True)
-                tokenizer.save_pretrained(model_path)
-
-            save_futures = [engine.save_checkpoint.remote(output_dir=model_path, tag=tag)
-                            for engine in training_engine_runners]
-            ray.get(save_futures)
-
-            if rank == 0:
-                os.sync()
-
-            refresh_futures = [eng.refresh_model.remote(model_path, policy_version)
-                               for eng in rollout_engines]
-            ray.get(refresh_futures)
-
-        logger.info(f"[Epoch {epoch+1}] Checkpoint saved and rollout engines refreshed")
+        save_and_refresh(
+            training_engine_runners=training_engine_runners,
+            rollout_engines=rollout_engines,
+            model_path=model_path, tag=tag, policy_version=policy_version,
+            tokenizer=tokenizer, rank=rank, logger=logger, epoch=epoch,
+        )
 
         logger.info(f"[Epoch {epoch+1}] Complete! Total epoch time: {epoch_time:.2f}s")
         logger.info("=" * 50)
 
-    # End MLflow run
     if rank == 0 and mlflow_run:
         end_run()
 
     logger.info("Training completed successfully!")
     ray.shutdown()
 
+
 if __name__ == "__main__":
-    # parse arguments
     parser = argparse.ArgumentParser()
     parser.add_argument("--config-file", type=str, default="./config/dummy.yaml", help="config file")
     parser.add_argument("--experiment_id", type=str, default="run_1", help="experiment id")
