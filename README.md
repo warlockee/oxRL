@@ -7,6 +7,11 @@
 <p align="center">A lightweight post-training framework for LLMs and VLMs. Maximizing developer speed. Scales to billions of parameters with DeepSpeed, vLLM, and Ray.</p>
 
 ---
+## Design Principle
+
+Context-length minimized principle. LLM orianted design. So your LLM agent will not suffer from OOT or IQ loss problem. 
+
+---
 ## Usage
 
 Post-train any model in under 10 lines of code. oxRL auto-detects your hardware, auto-prepares datasets, and scales to multi-GPU automatically.
