@@ -91,8 +91,8 @@ def training_engine_setup(params, alg, world_size, master_addr, master_port):
                     "WORLD_SIZE": str(world_size),
                     "LOCAL_RANK": "0",
                     "DS_SKIP_CUDA_CHECK": "1",}
-        # Forward HF tokens to Ray workers so gated models are accessible
-        for _env_key in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
+        # Forward HF tokens and CUDA_HOME to Ray workers
+        for _env_key in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "CUDA_HOME"):
             if os.environ.get(_env_key):
                 ray_vars[_env_key] = os.environ[_env_key]
         runner = alg.options(num_gpus=1, runtime_env={"env_vars": ray_vars}).remote(**kwargs)
@@ -138,9 +138,9 @@ def rollout_engine_setup(params, reward_fnc, eos_id):
             }
 
     num_rollout_engines = max(1, rollout_gpus // tp)
-    # Forward HF tokens to rollout workers so gated models are accessible
-    _rollout_env_vars = {}
-    for _env_key in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
+    # Forward HF tokens and essential env vars to rollout workers
+    _rollout_env_vars = {"VLLM_USE_V1": "0"}
+    for _env_key in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "CUDA_HOME"):
         if os.environ.get(_env_key):
             _rollout_env_vars[_env_key] = os.environ[_env_key]
     rollout_engines = []
@@ -512,41 +512,68 @@ def main(config_file, experiment_id, log_level="INFO"):
                     }, step=epoch + 1)
 
         ################
-        # Save current policy
+        # Save current policy + refresh rollout engines
         ################
         tag = f"iter{epoch+1:06d}_v{policy_version:06d}"
         model_path = get_experiment_dir_name(output_dir=config.run.checkpoint_dir, tag=tag, experiment_id=config.run.experiment_id)
         logger.info(f"[Epoch {epoch+1}] Saving checkpoint to {model_path}")
 
-        # save tokenizer so it's ready when vllm loads the model
-        if rank == 0:
-            os.makedirs(model_path, exist_ok=True)
-            tokenizer.save_pretrained(model_path)
+        # 1. Gather state dict in memory (all ranks participate — collective op)
+        try:
+            gather_futures = [engine.gather_state_dict.remote() for engine in training_engine_runners]
+            gather_results = ray.get(gather_futures)
+            state_dict = next((r for r in gather_results if r is not None), None)
+        except Exception as e:
+            logger.warning(f"[Epoch {epoch+1}] gather_state_dict failed ({e}), falling back to disk-based flow")
+            state_dict = None
 
-        # save must run on *all ranks* for zero-3 correctness.
-        save_futures = []
-        for engine in training_engine_runners:
-            save_futures.append(engine.save_checkpoint.remote(output_dir=model_path, tag=tag))
+        if state_dict is not None:
+            # 2. Pop metadata, put weights in Ray object store
+            config_dict = state_dict.pop("__model_config_dict__", None)
+            value_head_sd = state_dict.pop("__value_head_state_dict__", None)
+            state_dict_ref = ray.put(state_dict)
+            del state_dict  # free driver memory
 
-        # Wait for all saves to complete
-        ray.get(save_futures)
+            # 3. PARALLEL: disk save + rollout refresh
+            if rank == 0:
+                os.makedirs(model_path, exist_ok=True)
+                tokenizer.save_pretrained(model_path)
+                # Save model config.json (popped from state_dict before ray.put)
+                if config_dict is not None:
+                    import json as _json
+                    with open(os.path.join(model_path, "config.json"), "w") as _f:
+                        _json.dump(config_dict, _f, indent=2)
+                    logger.info(f"[Epoch {epoch+1}] Saved config.json to {model_path}")
 
-        # Flush filesystem buffers to ensure checkpoint is fully written
-        if rank == 0:
-            os.sync()
+            save_futures = [engine.save_checkpoint.remote(output_dir=model_path, tag=tag, state_dict_ref=state_dict_ref)
+                            for engine in training_engine_runners]
+            refresh_futures = [eng.refresh_model_from_state_dict.remote(state_dict_ref, config_dict, policy_version)
+                               for eng in rollout_engines]
+            ray.get(save_futures + refresh_futures)
 
-        logger.info(f"[Epoch {epoch+1}] Checkpoint saved: {model_path}")
+            # 4. Save value head to disk if PPO
+            if rank == 0 and value_head_sd is not None:
+                torch.save(value_head_sd, os.path.join(model_path, "value_head.pt"))
+                logger.info(f"[Epoch {epoch+1}] Value head saved to {model_path}")
 
-        ################
-        # Refresh rollout policy
-        ################
-        logger.info(f"[Epoch {epoch+1}] Refreshing rollout engines with new policy (version {policy_version})...")
-        refresh_futures = []
-        for eng in rollout_engines:
-            refresh_futures.append(eng.refresh_model.remote(model_path, policy_version))
+        else:
+            # Fallback: sequential disk-based flow (original behavior)
+            if rank == 0:
+                os.makedirs(model_path, exist_ok=True)
+                tokenizer.save_pretrained(model_path)
 
-        ray.get(refresh_futures)
-        logger.info(f"[Epoch {epoch+1}] Rollout engines refreshed")
+            save_futures = [engine.save_checkpoint.remote(output_dir=model_path, tag=tag)
+                            for engine in training_engine_runners]
+            ray.get(save_futures)
+
+            if rank == 0:
+                os.sync()
+
+            refresh_futures = [eng.refresh_model.remote(model_path, policy_version)
+                               for eng in rollout_engines]
+            ray.get(refresh_futures)
+
+        logger.info(f"[Epoch {epoch+1}] Checkpoint saved and rollout engines refreshed")
 
         logger.info(f"[Epoch {epoch+1}] Complete! Total epoch time: {epoch_time:.2f}s")
         logger.info("=" * 50)

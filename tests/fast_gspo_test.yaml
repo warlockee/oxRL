@@ -1,8 +1,8 @@
 run:
-  experiment_id: grpo_verify_run
+  experiment_id: fast_gspo_verify
   training_gpus: 1
   rollout_gpus: 1
-  checkpoint_dir: /tmp/grpo_test_ckpts
+  checkpoint_dir: /tmp/fast_gspo_ckpts
   tracking_uri: ""
   project_name: oxrl-test
   ray_address: null
@@ -12,7 +12,7 @@ run:
 lora:
   enabled: false
 train:
-  alg_name: sgrpo
+  alg_name: gspo
   optimizer_name: adamw
   lr: 1.0e-06
   adam_epsilon: 1.0e-08
@@ -46,12 +46,12 @@ model:
   attn_implementation: eager
 data:
   train_dnames:
-  - gsm8k_qwen2.5-0.5b-instruct_wsp_train
+  - gsm8k_mini_train
   train_ratios:
-    gsm8k_qwen2.5-0.5b-instruct_wsp_train: 1.0
-  train_files_path: ./data/gsm8k_qwen2.5-0.5b-instruct_wsp_train.parquet
-  val_files_path: ./data/gsm8k_qwen2.5-0.5b-instruct_wsp_test.parquet
-  num_workers: 4
+    gsm8k_mini_train: 1.0
+  train_files_path: ./data/gsm8k_mini_train.parquet
+  val_files_path: ./data/gsm8k_mini_test.parquet
+  num_workers: 2
   max_seq_len: 512
   prompt_key: prompt
   answer_key: answer
@@ -61,7 +61,7 @@ reward:
   reward_func: gsm8k_reward_func
 rollout:
   temperature: 1.0
-  max_tokens: 512
+  max_tokens: 256
   n_samples: 4
   top_p: 1.0
   top_k: -1

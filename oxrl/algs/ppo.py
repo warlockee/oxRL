@@ -287,7 +287,9 @@ class PPO(BaseAlgorithm):
                                    output_hidden_states=True)
 
         # Last hidden state: [B, T, H]
-        hidden_states = output.hidden_states[-1]
+        # Detach from the policy computation graph so that value loss
+        # gradients do NOT leak into the policy engine parameters.
+        hidden_states = output.hidden_states[-1].detach()
 
         # Project through value head: [B, T, H] -> [B, T, 1] -> [B, T]
         every_token_values = self.value_head(hidden_states).squeeze(-1)
@@ -350,10 +352,19 @@ class PPO(BaseAlgorithm):
         if (done & (~mask)).any():
             raise ValueError("done flag set on padding positions")
 
-        # 4. reject holes in padding e.g., [x1, x2, x3, pad, x4, x5] --> this is not supported
-        #    we only support [x1, x2, x3, pad, pad, pad...] or [x1, x2, x3, eos, pad,..]
-        if (mask[:, 1:] & (~mask[:, :-1])).any():
-            raise ValueError("mask has 0->1 transitions (padding in the middle). This is unsupported.")
+        # 4. Reject *holes* in the valid region.
+        #    Pred-aligned masks have the pattern: [0..0, 1..1, 0..0]
+        #    (leading prompt zeros, response ones, trailing padding zeros).
+        #    We allow exactly ONE contiguous block of 1s, which means at most
+        #    ONE 0->1 transition.  Two or more 0->1 transitions indicate
+        #    a gap (e.g., [1,1,0,1,1]) which the backward GAE sweep cannot
+        #    handle correctly.
+        transitions_01 = mask[:, 1:] & (~mask[:, :-1])   # [B, T-1]
+        if transitions_01.sum(dim=1).max().item() > 1:
+            raise ValueError(
+                "mask has more than one 0->1 transition per row (hole in valid region). "
+                "Expected pattern: [0..0, 1..1, 0..0]."
+            )
 
         # prefill val and reward for invalid tokens (i.e., padding) as they can contain nan in padded slot
         rewards = rewards.masked_fill(~mask, 0.0)
@@ -668,110 +679,197 @@ class PPO(BaseAlgorithm):
 
         return aggregated_metrics
 
-    def save_checkpoint(self, output_dir: str, tag: str):
+    def _get_base_model_config(self):
+        """Get the base model config (unwrapping PEFT if needed)."""
+        model_to_save = self.policy_engine.module
+        if hasattr(model_to_save, "get_base_model"):
+            model_to_save = model_to_save.get_base_model()
+        if hasattr(model_to_save, 'config'):
+            return model_to_save.config
+        if hasattr(self.policy_engine.module, 'module'):
+            if hasattr(self.policy_engine.module.module, 'config'):
+                return self.policy_engine.module.module.config
+        return None
+
+    def _strip_lora_and_merge(self, state_dict):
+        """Strip PEFT prefixes and merge LoRA weights into base weights in-memory."""
+        new_state_dict = {}
+        lora_weights = {}
+
+        for k, v in state_dict.items():
+            clean_k = k
+            if clean_k.startswith("base_model.model."):
+                clean_k = clean_k[len("base_model.model."):]
+
+            if ".lora_A." in clean_k or ".lora_B." in clean_k:
+                lora_weights[clean_k] = v
+            elif ".base_layer." in clean_k:
+                new_k = clean_k.replace(".base_layer.", ".")
+                new_state_dict[new_k] = v
+            else:
+                new_state_dict[clean_k] = v
+
+        for k in list(new_state_dict.keys()):
+            prefix = k.rsplit(".", 1)[0]
+            la = f"{prefix}.lora_A.default.weight"
+            lb = f"{prefix}.lora_B.default.weight"
+            if la in lora_weights and lb in lora_weights:
+                alpha = self.lora_config.lora_alpha
+                r = self.lora_config.r
+                scaling = alpha / r
+
+                la_w = lora_weights[la]
+                lb_w = lora_weights[lb]
+                base_w = new_state_dict[k]
+
+                try:
+                    delta = (lb_w @ la_w) * scaling
+                    if delta.shape == base_w.shape:
+                        print(f"  Merging LoRA for {k} (shape {base_w.shape})")
+                        new_state_dict[k] = base_w + delta.to(base_w.dtype)
+                    else:
+                        print(f"  WARNING: Shape mismatch for {k}: delta {delta.shape} vs base {base_w.shape}")
+                except Exception as e:
+                    print(f"  WARNING: Failed to merge LoRA for {k}: {e}")
+
+        return new_state_dict
+
+    def gather_state_dict(self):
+        """Gather ZeRO-3 partitioned weights into a single state dict in memory.
+
+        Collective operation — must be called on ALL ranks.
+        Returns the state dict on rank 0 (with value head), None on other ranks.
+        """
+        rank = torch.distributed.get_rank()
+        print(f"[Alg:{self.alg_name}][Rank {rank}] Gathering state dict in memory...")
+
+        # All ranks must participate in this collective operation
+        state_dict = self.policy_engine._zero3_consolidated_16bit_state_dict()
+
+        if torch.distributed.is_initialized():
+            torch.distributed.barrier()
+
+        if rank == 0 and state_dict is not None:
+            # Merge LoRA if enabled
+            if self.lora_config and self.lora_config.enabled:
+                print(f"[Alg:{self.alg_name}][Rank {rank}] Merging LoRA weights in memory...")
+                state_dict = self._strip_lora_and_merge(state_dict)
+
+            # Attach model config
+            config = self._get_base_model_config()
+            if config is not None:
+                state_dict["__model_config_dict__"] = config.to_dict()
+
+            # Attach value head state dict (not sharded, lives on this rank)
+            state_dict["__value_head_state_dict__"] = {
+                k: v.cpu() for k, v in self.value_head.state_dict().items()
+            }
+
+            print(f"[Alg:{self.alg_name}][Rank {rank}] State dict gathered: {len(state_dict)} keys (including value head)")
+            return state_dict
+        else:
+            return None
+
+    def save_checkpoint(self, output_dir: str, tag: str, state_dict_ref=None):
         '''
             Saves the model in hf compatible format for vllm, etc.
-            We rely on save_16bit_model which handles gathering partitioned weights in zero-3.
 
-            Note we must call this on ALL ranks for zero-3 correctness.
+            If state_dict_ref is provided, rank 0 retrieves the pre-gathered state
+            dict from the Ray object store and writes it to disk.
+            If state_dict_ref is None, falls back to save_16bit_model (original behavior).
+
+            Note: when state_dict_ref is None, must call on ALL ranks for zero-3 correctness.
             Also saves the value head state dict on rank 0.
         '''
         rank = torch.distributed.get_rank()
         print(f"[Alg:{self.alg_name}][Rank {rank}] Saving checkpoint to {output_dir} with tag {tag}...")
 
         try:
-            # 1. Save model weights (gathered fp16/bf16)
-            self.policy_engine.save_16bit_model(output_dir)
+            if state_dict_ref is not None:
+                # Fast path: write pre-gathered state dict from object store
+                # Note: Ray auto-resolves ObjectRef args, so state_dict_ref
+                # is already an OrderedDict when it arrives here.
+                if rank == 0:
+                    state_dict = state_dict_ref
 
-            # Barrier to ensure all ranks finished writing before rank 0 fixes state dict
-            if torch.distributed.is_initialized():
-                torch.distributed.barrier()
+                    # Pop metadata keys before saving weights (may already be
+                    # popped by main_rl.py before ray.put, so default to None)
+                    config_dict = state_dict.pop("__model_config_dict__", None)
+                    value_head_sd = state_dict.pop("__value_head_state_dict__", None)
 
-            # 2. Fix state dict on rank 0 if using LoRA
-            if rank == 0 and self.lora_config and self.lora_config.enabled:
-                checkpoint_files = glob.glob(os.path.join(output_dir, "*.bin")) + \
-                                  glob.glob(os.path.join(output_dir, "*.safetensors"))
-
-                if checkpoint_files:
-                    print(f"[Alg:{self.alg_name}][Rank {rank}] Stripping PEFT prefixes and merging weights in {len(checkpoint_files)} files...")
-                    for ckpt_path in checkpoint_files:
-                        is_safetensors = ckpt_path.endswith(".safetensors")
-                        if is_safetensors:
-                            from safetensors.torch import load_file, save_file
-                            state_dict = load_file(ckpt_path)
+                    # Save weights — break shared-memory tensors (e.g. tied
+                    # embeddings) so safetensors doesn't raise RuntimeError.
+                    os.makedirs(output_dir, exist_ok=True)
+                    from safetensors.torch import save_file
+                    seen_ptrs = {}
+                    for k, v in state_dict.items():
+                        ptr = v.data_ptr()
+                        if ptr in seen_ptrs:
+                            state_dict[k] = v.clone()
                         else:
-                            state_dict = torch.load(ckpt_path, map_location="cpu")
+                            seen_ptrs[ptr] = k
+                    save_file(state_dict, os.path.join(output_dir, "model.safetensors"))
+                    print(f"[Alg:{self.alg_name}][Rank {rank}] Weights saved via object store")
 
-                        # Identify base weights and lora weights
-                        new_state_dict = {}
-                        lora_weights = {}
+                    # Save config
+                    if config_dict is not None:
+                        import json
+                        with open(os.path.join(output_dir, "config.json"), "w") as f:
+                            json.dump(config_dict, f, indent=2)
+                        print(f"[Alg:{self.alg_name}][Rank {rank}] Config saved")
 
-                        for k, v in state_dict.items():
-                            clean_k = k
-                            if clean_k.startswith("base_model.model."):
-                                clean_k = clean_k[len("base_model.model."):]
+                    # Save value head
+                    if value_head_sd is not None:
+                        torch.save(value_head_sd, os.path.join(output_dir, "value_head.pt"))
+                        print(f"[Alg:{self.alg_name}][Rank {rank}] Value head saved")
 
-                            if ".lora_A." in clean_k or ".lora_B." in clean_k:
-                                lora_weights[clean_k] = v
-                            elif ".base_layer." in clean_k:
-                                new_k = clean_k.replace(".base_layer.", ".")
-                                new_state_dict[new_k] = v
+                # Barrier so all ranks wait for rank 0
+                if torch.distributed.is_initialized():
+                    torch.distributed.barrier()
+            else:
+                # Legacy path: ZeRO-3 gather + write (original behavior)
+                self.policy_engine.save_16bit_model(output_dir)
+
+                if torch.distributed.is_initialized():
+                    torch.distributed.barrier()
+
+                # Fix state dict on rank 0 if using LoRA
+                if rank == 0 and self.lora_config and self.lora_config.enabled:
+                    checkpoint_files = glob.glob(os.path.join(output_dir, "*.bin")) + \
+                                      glob.glob(os.path.join(output_dir, "*.safetensors"))
+
+                    if checkpoint_files:
+                        print(f"[Alg:{self.alg_name}][Rank {rank}] Stripping PEFT prefixes and merging weights in {len(checkpoint_files)} files...")
+                        for ckpt_path in checkpoint_files:
+                            is_safetensors = ckpt_path.endswith(".safetensors")
+                            if is_safetensors:
+                                from safetensors.torch import load_file, save_file
+                                sd = load_file(ckpt_path)
                             else:
-                                new_state_dict[clean_k] = v
+                                sd = torch.load(ckpt_path, map_location="cpu")
 
-                        # Manually merge LoRA weights into base weights if they exist in this shard
-                        for k in list(new_state_dict.keys()):
-                            prefix = k.rsplit(".", 1)[0]
-                            la = f"{prefix}.lora_A.default.weight"
-                            lb = f"{prefix}.lora_B.default.weight"
-                            if la in lora_weights and lb in lora_weights:
-                                alpha = self.lora_config.lora_alpha
-                                r = self.lora_config.r
-                                scaling = alpha / r
+                            sd = self._strip_lora_and_merge(sd)
 
-                                la_w = lora_weights[la]
-                                lb_w = lora_weights[lb]
-                                base_w = new_state_dict[k]
+                            if is_safetensors:
+                                from safetensors.torch import save_file
+                                save_file(sd, ckpt_path)
+                            else:
+                                torch.save(sd, ckpt_path)
 
-                                try:
-                                    delta = (lb_w @ la_w) * scaling
-                                    if delta.shape == base_w.shape:
-                                        print(f"  Merging LoRA for {k} (shape {base_w.shape})")
-                                        new_state_dict[k] = base_w + delta.to(base_w.dtype)
-                                    else:
-                                        print(f"  WARNING: Shape mismatch for {k}: delta {delta.shape} vs base {base_w.shape}")
-                                except Exception as e:
-                                    print(f"  WARNING: Failed to merge LoRA for {k}: {e}")
+                # Save config on rank 0
+                if rank == 0:
+                    config = self._get_base_model_config()
+                    if config is not None:
+                        config.save_pretrained(output_dir)
+                        print(f"[Alg:{self.alg_name}][Rank {rank}] Config saved")
 
-                        if is_safetensors:
-                            save_file(new_state_dict, ckpt_path)
-                        else:
-                            torch.save(new_state_dict, ckpt_path)
+                    # Save value head
+                    value_head_path = os.path.join(output_dir, "value_head.pt")
+                    torch.save(self.value_head.state_dict(), value_head_path)
+                    print(f"[Alg:{self.alg_name}][Rank {rank}] Value head saved to {value_head_path}")
 
-            # 3. Save config (required for vllm) on rank 0 ONLY
-            if rank == 0:
-                # We need to save the base model config, not the PeftModel config
-                model_to_save = self.policy_engine.module
-                if hasattr(model_to_save, "get_base_model"):
-                    model_to_save = model_to_save.get_base_model()
-
-                if hasattr(model_to_save, 'config'):
-                    model_to_save.config.save_pretrained(output_dir)
-                    print(f"[Alg:{self.alg_name}][Rank {rank}] Config saved")
-                else:
-                    if hasattr(self.policy_engine.module, 'module'):
-                        if hasattr(self.policy_engine.module.module, 'config'):
-                            self.policy_engine.module.module.config.save_pretrained(output_dir)
-                            print(f"[Alg:{self.alg_name}][Rank {rank}] Config saved (fallback)")
-
-                # 4. Save value head state dict (only rank 0, it's not sharded)
-                value_head_path = os.path.join(output_dir, "value_head.pt")
-                torch.save(self.value_head.state_dict(), value_head_path)
-                print(f"[Alg:{self.alg_name}][Rank {rank}] Value head saved to {value_head_path}")
-
-            # make sure rank 0 finished writing config
-            if torch.distributed.is_initialized():
-                torch.distributed.barrier()
+                if torch.distributed.is_initialized():
+                    torch.distributed.barrier()
 
             print(f"[Alg:{self.alg_name}][Rank {rank}] Checkpoint save completed!")
 

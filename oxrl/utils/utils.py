@@ -70,10 +70,30 @@ def import_deepspeed_safely():
     (like MissingCUDAException) with clear warnings instead of fatal crashes.
     """
     import os
+    import shutil
+
     # Ensure bypass is enabled if not already set
     if "DS_SKIP_CUDA_CHECK" not in os.environ:
         os.environ["DS_SKIP_CUDA_CHECK"] = "1"
-    
+
+    # Auto-detect CUDA_HOME if not set (DeepSpeed needs it for op compatibility checks)
+    if not os.environ.get("CUDA_HOME"):
+        # 1. Check common locations
+        for candidate in [
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "cuda_env"),
+            "/usr/local/cuda",
+            "/usr/local/cuda-12",
+            "/usr/local/cuda-11",
+        ]:
+            if os.path.isfile(os.path.join(candidate, "bin", "nvcc")):
+                os.environ["CUDA_HOME"] = candidate
+                break
+        else:
+            # 2. Try to find nvcc on PATH
+            nvcc_path = shutil.which("nvcc")
+            if nvcc_path:
+                os.environ["CUDA_HOME"] = os.path.dirname(os.path.dirname(nvcc_path))
+
     try:
         import deepspeed
         return deepspeed
@@ -81,7 +101,7 @@ def import_deepspeed_safely():
         print(f"\n[WARNING] DeepSpeed initialization encountered an issue: {e}")
         print("[WARNING] oxRL will attempt to continue, but performance might be degraded.")
         print("[WARNING] If you encounter further errors, ensure CUDA Toolkit (nvcc) is installed.")
-        
+
         # Try to import again with even more aggressive bypasses if possible
         # or just re-raise if it's a fundamental ImportError
         try:

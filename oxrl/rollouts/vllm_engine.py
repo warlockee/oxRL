@@ -1,4 +1,6 @@
 import os
+import json
+import tempfile
 import torch
 import gc
 import ray
@@ -142,6 +144,84 @@ class VLLMRolloutEngine:
             print(f"Failed to load vLLM model from {self.model_path}: {e}")
             self.vllm_engine = None
             raise
+
+    def refresh_model_from_state_dict(self, state_dict_ref, config_dict, version: int) -> bool:
+        """Refresh model weights from a Ray object store reference (in-place).
+
+        Fast path: writes state dict to a local tmpdir, then uses vLLM's
+        update_config + reload_weights to swap weights without rebuilding
+        the engine (preserves KV cache allocation, CUDA memory).
+
+        Falls back to full engine rebuild if reload_weights fails.
+
+        Args:
+            state_dict_ref: Ray ObjectRef pointing to the state dict.
+            config_dict: Model config as a dict (for config.json).
+            version: Policy version number.
+
+        Returns:
+            True if model was refreshed, False if skipped (already at version).
+        """
+        if self.loaded_version == version:
+            self.log(f"Model already at version {version}, skipping refresh")
+            return False
+
+        self.log(f"Refreshing model to version {version} from object store...")
+
+        # 1. Retrieve state dict from Ray object store
+        # Note: Ray auto-resolves ObjectRef args, so state_dict_ref
+        # is already an OrderedDict when it arrives here.
+        state_dict = state_dict_ref
+
+        # Pop metadata keys (they shouldn't be written as weights)
+        state_dict.pop("__model_config_dict__", None)
+        state_dict.pop("__value_head_state_dict__", None)
+
+        # 2. Write to a persistent local tmpdir (reuse across refreshes)
+        tmpdir = os.path.join(tempfile.gettempdir(), f"oxrl_vllm_e{self.engine_id}")
+        os.makedirs(tmpdir, exist_ok=True)
+
+        # Write weights — break shared-memory tensors (e.g. tied embeddings)
+        # so safetensors doesn't raise RuntimeError.
+        from safetensors.torch import save_file
+        seen_ptrs = {}
+        for k, v in state_dict.items():
+            ptr = v.data_ptr()
+            if ptr in seen_ptrs:
+                state_dict[k] = v.clone()
+            else:
+                seen_ptrs[ptr] = k
+        weights_path = os.path.join(tmpdir, "model.safetensors")
+        save_file(state_dict, weights_path)
+        del state_dict  # free memory
+
+        # Write config.json
+        if config_dict is not None:
+            with open(os.path.join(tmpdir, "config.json"), "w") as f:
+                json.dump(config_dict, f, indent=2)
+
+        # 3. Try in-place reload (fast path) if engine already exists
+        if self.vllm_engine is not None:
+            try:
+                self.log(f"Attempting in-place weight reload from {tmpdir}")
+                self.vllm_engine.collective_rpc(
+                    "update_config",
+                    args=({"model_config": {"model": tmpdir}},)
+                )
+                self.vllm_engine.collective_rpc("reload_weights")
+                self.loaded_version = version
+                self.model_path = tmpdir
+                self.log(f"In-place weight reload succeeded (version {version})")
+                return True
+            except Exception as e:
+                self.log(f"In-place reload failed ({e}), falling back to full engine rebuild")
+
+        # 4. Fallback: full engine rebuild from tmpdir
+        self.model_path = tmpdir
+        self.load_model()
+        self.loaded_version = version
+        self.log(f"Model refreshed to version {version} (full rebuild from tmpdir)")
+        return True
 
     def make_sampling_params(self) -> SamplingParams:
         '''

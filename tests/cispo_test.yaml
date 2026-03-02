@@ -1,18 +1,18 @@
 run:
-  experiment_id: grpo_verify_run
+  experiment_id: cispo_verify_run
   training_gpus: 1
   rollout_gpus: 1
-  checkpoint_dir: /tmp/grpo_test_ckpts
+  checkpoint_dir: /tmp/cispo_test_ckpts
   tracking_uri: ""
   project_name: oxrl-test
   ray_address: null
-  ray_master_port: 29500
+  ray_master_port: 29900
   distributed_training_strategy: deepspeed-zero3
   seed: 42
 lora:
   enabled: false
 train:
-  alg_name: sgrpo
+  alg_name: cispo
   optimizer_name: adamw
   lr: 1.0e-06
   adam_epsilon: 1.0e-08
