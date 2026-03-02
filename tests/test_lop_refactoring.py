@@ -1,10 +1,10 @@
 """
-Comprehensive verification tests for the MOP design pattern refactoring.
+Comprehensive verification tests for the LOP (LLM-Oriented Design Pattern) refactoring.
 
 Tests extracted loss functions, tools, config modules, and loop phases
 to ensure behavioral equivalence with the original monolithic code.
 
-Run with: pytest tests/test_mop_refactoring.py -v
+Run with: pytest tests/test_lop_refactoring.py -v
 """
 import pytest
 import torch

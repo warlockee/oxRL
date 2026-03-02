@@ -1,4 +1,4 @@
-# LLM-Native Design Patterns: The Software Architecture Bible for the AI Era
+# LLM-Oriented Design Patterns (LOP): The Software Architecture Bible for the AI Era
 
 **Subtitle:** Abandon Human Readability, Reforge the Laws of Gears, Feedback Loops, and Tools
 
