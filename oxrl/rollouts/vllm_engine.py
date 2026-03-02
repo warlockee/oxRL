@@ -1,14 +1,16 @@
 import os
-import json
 import tempfile
 import torch
 import gc
 import ray
-from vllm import LLM, SamplingParams
+from vllm import LLM
 from typing import Optional, List, Callable, Any, Dict
-import numpy as np
 
 from oxrl.utils.setup import ensure_sliding_window_cache
+from oxrl.rollouts.sampling import make_sampling_params
+from oxrl.rollouts.logprob_utils import extract_logprobs
+from oxrl.rollouts.reward_scoring import score_response, normalize_rewards
+
 ensure_sliding_window_cache()
 
 @ray.remote
@@ -63,7 +65,19 @@ class VLLMRolloutEngine:
         self.trust_remote_code = trust_remote_code
         self.vllm_engine = None
         self.refresh_model(model_path, 0)
-        self.sampling_params = self.make_sampling_params()
+        self.sampling_params = make_sampling_params(
+            seed=self.seed,
+            n_samples=self.n_samples,
+            temperature=self.temperature,
+            top_p=self.top_p,
+            top_k=self.top_k,
+            max_tokens=self.max_tokens,
+            stop=self.stop,
+            stop_token_ids=self.stop_token_ids,
+            ignore_eos=self.ignore_eos,
+            prompt_logprobs=self.prompt_logprobs,
+            force_strict_on_policy=self.force_strict_on_policy,
+        )
 
         # reward normalization
         self.eps_reward_norm = float(eps_reward_norm)
@@ -178,27 +192,14 @@ class VLLMRolloutEngine:
         state_dict.pop("__value_head_state_dict__", None)
 
         # 2. Write to a persistent local tmpdir (reuse across refreshes)
-        tmpdir = os.path.join(tempfile.gettempdir(), f"oxrl_vllm_e{self.engine_id}")
-        os.makedirs(tmpdir, exist_ok=True)
+        from oxrl.tools.checkpoint import save_state_dict_to_safetensors, save_config_json
 
-        # Write weights — break shared-memory tensors (e.g. tied embeddings)
-        # so safetensors doesn't raise RuntimeError.
-        from safetensors.torch import save_file
-        seen_ptrs = {}
-        for k, v in state_dict.items():
-            ptr = v.data_ptr()
-            if ptr in seen_ptrs:
-                state_dict[k] = v.clone()
-            else:
-                seen_ptrs[ptr] = k
-        weights_path = os.path.join(tmpdir, "model.safetensors")
-        save_file(state_dict, weights_path)
+        tmpdir = os.path.join(tempfile.gettempdir(), f"oxrl_vllm_e{self.engine_id}")
+        save_state_dict_to_safetensors(tmpdir, state_dict)
         del state_dict  # free memory
 
-        # Write config.json
         if config_dict is not None:
-            with open(os.path.join(tmpdir, "config.json"), "w") as f:
-                json.dump(config_dict, f, indent=2)
+            save_config_json(tmpdir, config_dict)
 
         # 3. Try in-place reload (fast path) if engine already exists
         if self.vllm_engine is not None:
@@ -222,104 +223,6 @@ class VLLMRolloutEngine:
         self.loaded_version = version
         self.log(f"Model refreshed to version {version} (full rebuild from tmpdir)")
         return True
-
-    def make_sampling_params(self) -> SamplingParams:
-        '''
-           This function makes sure that sampling policy stays in on-policy regime
-           (i.e., same policy as training)
-        '''
-        if self.force_strict_on_policy:
-            if self.temperature != 1.0:
-                raise ValueError("Strict on-policy requires temperature = 1.0 (no scaling).")
-
-            if self.top_p != 1.0:
-                raise ValueError("Strict on-policy requires top_p = 1.0 (no nucleus truncation).")
-
-            if self.top_k != -1:
-                raise ValueError("Strict on-policy requires top_k = -1 (no top-k truncation).")
-
-            if self.n_samples < 1:
-                raise ValueError("Strict on-policy requires n_samples >= 1.")
-
-            # vllm can return empty responses for max_tokens <= 0 which will break the rest of the code.
-            if self.max_tokens <= 0:
-                raise ValueError("max_tokens must be > 0.")
-
-            if self.stop is not None or self.stop_token_ids is not None or self.ignore_eos:
-                raise ValueError(
-                    "Strict on-policy requires stop=None, stop_token_ids=None, ignore_eos=False "
-                    "(these change the trajectory distribution)."
-                )
-
-        return SamplingParams(
-            seed=self.seed,
-            n=self.n_samples,
-
-            temperature=self.temperature,
-            top_p=self.top_p, 
-            top_k=self.top_k,
-            min_p=0.0,
-
-            max_tokens=self.max_tokens,
-            stop=self.stop,
-            stop_token_ids=self.stop_token_ids,
-            ignore_eos=self.ignore_eos,
-
-            # Neutral penalties and no shaping
-            presence_penalty=0.0,
-            frequency_penalty=0.0,
-            repetition_penalty=1.0,
-            logit_bias=None,
-            allowed_token_ids=None,
-            bad_words=None,
-            logits_processors=None,
-
-            # setup to returns required info
-            logprobs=1, # it returns logprobs for each token
-            prompt_logprobs=(1 if self.prompt_logprobs else None), # it returns logprobs for each token in the prompt which is memory intensive
-        )
-
-    def extract_logprobs(self, response_ids: List[int], logprobs_by_pos: Any) -> torch.Tensor:
-        '''
-           Extract logprobs for each token in response_ids from logprobs.
-           logprobs_by_pos: list of dict {token_id -> logprob_info}
-        '''
-        if logprobs_by_pos is None:
-            raise ValueError("logprobs_by_pos must not be None.")
-
-        if not isinstance(logprobs_by_pos, list):
-            raise TypeError(f"logprobs_by_pos must be a list, got {type(logprobs_by_pos)}")
-
-        if len(response_ids) != len(logprobs_by_pos):
-            raise ValueError(f"logprobs_by_pos must have the same len as response_ids. Got {len(logprobs_by_pos)} vs {len(response_ids)}.")
-
-        token_logprobs = []
-        for t_id, lgp_dict in zip(response_ids, logprobs_by_pos):
-            if lgp_dict is None:
-                raise ValueError(f"No logprobs for token {t_id} in {response_ids}.")
-
-            key = t_id
-            if key not in lgp_dict and str(key) in lgp_dict:
-                key = str(key)
-
-            if key not in lgp_dict:
-                raise ValueError(f"No logprobs for token {t_id} in {response_ids}.")
-
-            # account for different formats of logprobs
-            v = lgp_dict[key]
-            if hasattr(v, 'logprob'):
-                token_logprobs.append(float(v.logprob))
-
-            elif isinstance(v, (int, float)):
-                token_logprobs.append(float(v))
-
-            elif isinstance(v, dict) and 'logprob' in v:
-                token_logprobs.append(float(v['logprob']))
-
-            else:
-                raise TypeError(f"Unexpected logprob type: {type(v)}")
-
-        return torch.tensor(token_logprobs, dtype=torch.float32, device='cpu')
 
     def generate(self,
                 prompts: List[Dict[str, List[int]]],
@@ -413,7 +316,7 @@ class VLLMRolloutEngine:
                         resp_metadata["response_text"] = getattr(response, "text", "")
 
                         # it is important to score the response regardless of its length if it is empty
-                        rewards_resp, is_per_token = self.score_response(prompt_ids, response_ids, finish_reason, metadata=resp_metadata)
+                        rewards_resp, is_per_token = score_response(self.reward_func, prompt_ids, response_ids, finish_reason, metadata=resp_metadata)
                         rewards[prompt_len:] = rewards_resp
 
                         # is_per_token is False, then rewards_resp will only have value for the last element
@@ -428,7 +331,7 @@ class VLLMRolloutEngine:
                             # token-aligned
                             #####
                             token_masks[prompt_len:] = 1 # 1 if valid token which we want to update.
-                            response_logprobs = self.extract_logprobs(response_ids, response.logprobs)
+                            response_logprobs = extract_logprobs(response_ids, response.logprobs)
                             token_old_logprobs[prompt_len:] = response_logprobs
 
                             #####
@@ -492,76 +395,16 @@ class VLLMRolloutEngine:
                                                 "response_text": getattr(response, "text", ""),
                                                 "response_len": response_len,
                                                 })
-                    self.normalize_rewards(
+                    normalize_rewards(
                                             samples=group_samples,
                                             stats=group_stats,
                                             prompt_len=prompt_len,
-                                            is_per_token=is_per_token)
+                                            is_per_token=is_per_token,
+                                            eps_reward_norm=self.eps_reward_norm,
+                                            reward_broadcast=self.reward_broadcast)
                     rollout_samples.extend(group_samples)
 
                 return rollout_samples
-
-    def score_response(self, prompt_ids, response_ids, finish_reason, metadata=None) -> torch.Tensor:
-        '''
-            Calculate the reward for each response token.
-            it returns a float tensor of len(response_ids).
-        '''
-        with torch.no_grad():
-            # per token rewards or scalar reward
-            rewards, is_per_token = self.reward_func(prompt_ids, response_ids, finish_reason, metadata=metadata)
-
-        if isinstance(rewards, torch.Tensor):
-            rewards = rewards.to(dtype=torch.float32, device='cpu')
-
-        else:
-            rewards = torch.tensor(rewards, dtype=torch.float32, device='cpu')
-
-        if rewards.numel() != len(response_ids):
-            raise ValueError(f"score_response must return len={len(response_ids)} rewards, got {rewards.numel()}")
-
-        return rewards, is_per_token
-
-    def normalize_rewards(self,
-                          samples: List[Dict[str, Any]],
-                          stats: Dict[str, List[int]],
-                          prompt_len: int,
-                          is_per_token: bool) -> None:
-        '''
-            Normalize rewards for each group of samples for a given prompt.
-            samples: list of different responses for a given prompt e.g., [{"prompt_ids": [...], "response_ids": [...],...}, ...]
-            stats: {"reward": [...], "length": [...]} or {"reward": [...], "length": [...], "reward": [...], "length": [...]} if reward_broadcast is True
-         '''
-        denom = len(samples) # number of samples in the group
-        if len(samples) > 1:
-            rewards_array = np.array(stats['rewards'])
-            mean_scores = rewards_array.sum() / denom
-            std_scores  = np.sqrt(((rewards_array - mean_scores)**2).sum() / max(1, denom - 1))
-        else:
-            # For a single sample, we don't normalize (i.e. advantage is 0 if we subtract mean)
-            # but usually for n=1 we keep the raw reward.
-            mean_scores = 0.0
-            std_scores  = 1.0 - self.eps_reward_norm
-
-        if is_per_token:
-            raise ValueError("per token rewards are not supported yet as normalization is done assuming per response rewards")
-
-        # now update the rewards in the samples
-        for i, sample in enumerate(samples):
-            # sample['reward']: [T] where prompt tokens would get 0
-            # sample['reward'][-1]: means the last token reward
-            zscore = torch.zeros_like(sample['rewards'], dtype=torch.float)
-            zscore[-1] = (sample['rewards'][-1] - mean_scores) / (std_scores + self.eps_reward_norm)
-            sample["zscores"] = zscore
-            if self.reward_broadcast:
-                sample["zscores"][prompt_len:] = zscore[-1]
-
-            # prediction-aligned zscores
-            # zscore[prompt_len:] corresponds to response tokens 0..N-1
-            pred_zscores = torch.zeros_like(sample['rewards'], dtype=torch.float)
-            pred_start = prompt_len - 1
-            pred_end   = len(sample['rewards']) - 1
-            pred_zscores[pred_start:pred_end] = sample["zscores"][prompt_len:]
-            sample["pred_zscores"] = pred_zscores
 
 if __name__ == "__main__":
     from transformers import AutoTokenizer

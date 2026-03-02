@@ -3,9 +3,7 @@ import numpy as np
 from tqdm import tqdm
 import ray
 import os
-import glob
 from typing import Any
-from transformers import AutoModelForCausalLM, AutoModelForImageTextToText, AutoConfig
 
 from oxrl.utils.setup import load_model_and_ref
 from oxrl.algs.base import BaseAlgorithm
@@ -250,19 +248,6 @@ class GRPO(BaseAlgorithm):
 
         return logprobs, entropies, target_ids
 
-    def compute_kl_distance(self, logprobs, ref_logprobs):
-        '''
-            Compute KL divergence between two policies.
-            using var_reduced form:
-            kl = E[log pi/pi_ref] + pi_ref/pi - 1
-        '''
-        # [B, T-1]
-        log_ratio = logprobs - ref_logprobs
-        # pi_ref/pi = exp(ref_logprobs - logprobs)
-        ratio_inv = torch.exp(ref_logprobs - logprobs)
-        kl_dist = log_ratio + ratio_inv - 1
-        return kl_dist
-
     def compute_policy_loss(self,
                             logprobs: torch.Tensor,
                             old_logprobs: torch.Tensor,
@@ -272,103 +257,23 @@ class GRPO(BaseAlgorithm):
                             ref_logprobs: torch.Tensor,
                             ):
         '''
-            logprobs: [B, T-1]
-            old_logprobs, advantages, mask: [B, T - 1]
-            entropies: [B, T-1]
-            ref_logprobs: [B, T-1]
-            Compute policy loss:
-                1. ratio = exp(logprobs - old_logprobs)
-                2. loss = -(min(ratio * adv, clip_adv * adv)) * mask
+            Dispatches to the appropriate loss function based on self.loss_variant.
+            See oxrl/algs/losses/ for individual implementations (sgrpo, gspo, cispo).
         '''
-        device = logprobs.device
-        dtype = logprobs.dtype
-        loss_ent = torch.tensor(0.0, device=device, dtype=dtype)
-        kl_ref   = torch.tensor(0.0, device=device, dtype=dtype)
-
-        # 1. make sure advantages are detached and
-        # convert to float32 for stability under bf16/fp16
-        adv = advantages.detach().to(torch.float32)
-        mask = (mask.to(device=device) > 0.5).to(dtype=dtype)
-        denom = mask.sum().clamp(min=1.0)
-
-        # 2. calculate ratio = pi / pi_old = exp(logprobs - old_logprobs)
-        logratio = (logprobs - old_logprobs).to(torch.float32)
-        ratio   = torch.exp(logratio)
-
-        # 3. compute loss based on variant
-        #
-        # sgrpo:  Token-level clipped surrogate (like PPO but no critic).
-        #         Default. Works well for dense models. Sensitive to per-token
-        #         log-prob drift, so avoid on MoE where vLLM vs HF routing diverges.
-        #
-        # gspo:   Sequence-level clipped surrogate. Averages log-ratios across
-        #         the sequence before clipping, so token-level MoE routing noise
-        #         cancels out. Use for MoE models (e.g. Qwen3-MoE, DeepSeek-V3).
-        #
-        # cispo:  Clipped ratio as detached weight on log-prob (policy-gradient style).
-        #         More conservative than sgrpo — ratio doesn't flow gradients.
-        #         Use when sgrpo shows reward hacking or unstable updates.
-        #
-        if self.loss_variant == "sgrpo":
-            unclipped = ratio * adv
-            clip_adv  = torch.clamp(ratio, 1.0 - self.clip_low, 1.0 + self.clip_high) * adv
-            loss_pi   = -(torch.minimum(unclipped, clip_adv) * mask).sum() / denom
-        elif self.loss_variant == "gspo":
-            seq_lens = mask.sum(dim=-1).clamp(min=1.0)                       # [B]
-            seq_logratio = (logratio * mask).sum(dim=-1) / seq_lens          # [B]
-            seq_ratio = torch.exp(seq_logratio)                              # [B]
-            seq_adv = (adv * mask).sum(dim=-1) / seq_lens                    # [B]
-            seq_unclipped = seq_ratio * seq_adv                              # [B]
-            seq_clip_adv = torch.clamp(seq_ratio, 1.0 - self.clip_low,
-                                       1.0 + self.clip_high) * seq_adv      # [B]
-            loss_pi = -torch.minimum(seq_unclipped, seq_clip_adv).mean()     # scalar
-        else:
-            clipped_ratio = torch.clamp(ratio, 1.0 - self.clip_low, 1.0 + self.clip_high)
-            loss_pi = -(clipped_ratio.detach() * logprobs * adv * mask).sum() / denom
-
-        # 4. compute entropy loss
-        if entropies is not None and self.ent_coeff > 0.0:
-            loss_ent = (entropies * mask).sum() / denom
-
-        if ref_logprobs is not None and self.kl_coeff > 0.0:
-            kl_dist = self.compute_kl_distance(logprobs=logprobs, ref_logprobs=ref_logprobs)
-            kl_ref  = (kl_dist * mask).sum() / denom
-
-        loss_total = loss_pi - self.ent_coeff * loss_ent + self.kl_coeff * kl_ref
-
-        # 5. useful metrics
-        with torch.no_grad():
-            if self.loss_variant == "gspo":
-                # Sequence-level metrics for GSPO
-                seq_clipped = (seq_ratio > (1.0 + self.clip_high)) | (seq_ratio < (1.0 - self.clip_low))
-                clipfrac = seq_clipped.to(dtype=dtype).mean()
-                seq_ratio_inv = torch.exp(-seq_logratio)
-                approx_kl = (seq_logratio + seq_ratio_inv - 1.0).to(dtype=dtype).mean()
-            else:
-                # Token-level metrics for SGRPO/CISPO
-                # first term too large ==> policy changed too much upward
-                # second term too small ==> policy changed too much downward
-                clipped_mask = (ratio > (1.0 + self.clip_high)) | (ratio < (1.0 - self.clip_low))
-                # fraction of masked tokens that ratio out of ranges
-                clipfrac = (clipped_mask.to(dtype=dtype) * mask).sum() / denom
-
-                # approx KL (var-reduced): log(pi/pi_old) + pi_old/pi - 1
-                # logratio = log(pi/pi_old)
-                ratio_inv = torch.exp(-logratio)
-                approx_kl_t = logratio + ratio_inv - 1.0
-                approx_kl = (approx_kl_t.to(dtype=dtype) * mask).sum() / denom
-
-            # save the metrics for debugging
-            metrics = {
-                'clipfrac': clipfrac.item(),
-                'kl_old': approx_kl.item(),
-                'loss_ent': loss_ent.item(),
-                'loss_pi': loss_pi.item(),
-                'loss_total': loss_total.item(),
-                'kl_ref': kl_ref.item(),
-            }
-
-        return loss_total, metrics
+        from oxrl.algs.losses import get_loss_fn
+        loss_fn = get_loss_fn(self.loss_variant)
+        return loss_fn(
+            logprobs=logprobs,
+            old_logprobs=old_logprobs,
+            advantages=advantages,
+            mask=mask,
+            entropies=entropies,
+            ref_logprobs=ref_logprobs,
+            clip_low=self.clip_low,
+            clip_high=self.clip_high,
+            ent_coeff=self.ent_coeff,
+            kl_coeff=self.kl_coeff,
+        )
 
     def train_step(self, engine_id, micro_batches):
         '''
@@ -473,72 +378,15 @@ class GRPO(BaseAlgorithm):
 
         return aggregated_metrics
 
-    def _get_base_model_config(self):
-        """Get the base model config (unwrapping PEFT if needed)."""
-        model_to_save = self.policy_engine.module
-        if hasattr(model_to_save, "get_base_model"):
-            model_to_save = model_to_save.get_base_model()
-        if hasattr(model_to_save, 'config'):
-            return model_to_save.config
-        if hasattr(self.policy_engine.module, 'module'):
-            if hasattr(self.policy_engine.module.module, 'config'):
-                return self.policy_engine.module.module.config
-        return None
-
-    def _strip_lora_and_merge(self, state_dict):
-        """Strip PEFT prefixes and merge LoRA weights into base weights in-memory.
-
-        Takes a raw state dict (possibly with PEFT key prefixes and LoRA adapters)
-        and returns a clean state dict with LoRA deltas merged into base weights.
-        """
-        new_state_dict = {}
-        lora_weights = {}
-
-        for k, v in state_dict.items():
-            clean_k = k
-            if clean_k.startswith("base_model.model."):
-                clean_k = clean_k[len("base_model.model."):]
-
-            if ".lora_A." in clean_k or ".lora_B." in clean_k:
-                lora_weights[clean_k] = v
-            elif ".base_layer." in clean_k:
-                new_k = clean_k.replace(".base_layer.", ".")
-                new_state_dict[new_k] = v
-            else:
-                new_state_dict[clean_k] = v
-
-        # Merge LoRA weights into base weights
-        for k in list(new_state_dict.keys()):
-            prefix = k.rsplit(".", 1)[0]
-            la = f"{prefix}.lora_A.default.weight"
-            lb = f"{prefix}.lora_B.default.weight"
-            if la in lora_weights and lb in lora_weights:
-                alpha = self.lora_config.lora_alpha
-                r = self.lora_config.r
-                scaling = alpha / r
-
-                la_w = lora_weights[la]
-                lb_w = lora_weights[lb]
-                base_w = new_state_dict[k]
-
-                try:
-                    delta = (lb_w @ la_w) * scaling
-                    if delta.shape == base_w.shape:
-                        print(f"  Merging LoRA for {k} (shape {base_w.shape})")
-                        new_state_dict[k] = base_w + delta.to(base_w.dtype)
-                    else:
-                        print(f"  WARNING: Shape mismatch for {k}: delta {delta.shape} vs base {base_w.shape}")
-                except Exception as e:
-                    print(f"  WARNING: Failed to merge LoRA for {k}: {e}")
-
-        return new_state_dict
-
     def gather_state_dict(self):
         """Gather ZeRO-3 partitioned weights into a single state dict in memory.
 
         Collective operation — must be called on ALL ranks.
         Returns the state dict on rank 0, None on other ranks.
         """
+        from oxrl.tools.lora_merge import strip_lora_and_merge
+        from oxrl.tools.checkpoint import get_base_model_config
+
         rank = torch.distributed.get_rank()
         print(f"[Alg:{self.alg_name}][Rank {rank}] Gathering state dict in memory...")
 
@@ -549,13 +397,13 @@ class GRPO(BaseAlgorithm):
             torch.distributed.barrier()
 
         if rank == 0 and state_dict is not None:
-            # Merge LoRA if enabled
             if self.lora_config and self.lora_config.enabled:
                 print(f"[Alg:{self.alg_name}][Rank {rank}] Merging LoRA weights in memory...")
-                state_dict = self._strip_lora_and_merge(state_dict)
+                state_dict = strip_lora_and_merge(
+                    state_dict, self.lora_config.lora_alpha, self.lora_config.r
+                )
 
-            # Attach model config as a serializable dict
-            config = self._get_base_model_config()
+            config = get_base_model_config(self.policy_engine)
             if config is not None:
                 state_dict["__model_config_dict__"] = config.to_dict()
 
@@ -574,80 +422,45 @@ class GRPO(BaseAlgorithm):
 
             Note: when state_dict_ref is None, must call on ALL ranks for zero-3 correctness.
         '''
+        from oxrl.tools.checkpoint import (
+            save_state_dict_to_safetensors,
+            save_config_json,
+            fix_lora_checkpoint_files,
+            get_base_model_config,
+        )
+
         rank = torch.distributed.get_rank()
         print(f"[Alg:{self.alg_name}][Rank {rank}] Saving checkpoint to {output_dir} with tag {tag}...")
 
         try:
             if state_dict_ref is not None:
-                # Fast path: write pre-gathered state dict from object store
-                # Note: Ray auto-resolves ObjectRef args, so state_dict_ref
-                # is already an OrderedDict when it arrives here.
                 if rank == 0:
                     state_dict = state_dict_ref
-
-                    # Pop metadata keys before saving weights (may already be
-                    # popped by main_rl.py before ray.put, so default to None)
                     config_dict = state_dict.pop("__model_config_dict__", None)
 
-                    # Save weights — break shared-memory tensors (e.g. tied
-                    # embeddings) so safetensors doesn't raise RuntimeError.
-                    os.makedirs(output_dir, exist_ok=True)
-                    from safetensors.torch import save_file
-                    seen_ptrs = {}
-                    for k, v in state_dict.items():
-                        ptr = v.data_ptr()
-                        if ptr in seen_ptrs:
-                            state_dict[k] = v.clone()
-                        else:
-                            seen_ptrs[ptr] = k
-                    save_file(state_dict, os.path.join(output_dir, "model.safetensors"))
+                    save_state_dict_to_safetensors(output_dir, state_dict)
                     print(f"[Alg:{self.alg_name}][Rank {rank}] Weights saved via object store")
 
-                    # Save config
                     if config_dict is not None:
-                        import json
-                        with open(os.path.join(output_dir, "config.json"), "w") as f:
-                            json.dump(config_dict, f, indent=2)
+                        save_config_json(output_dir, config_dict)
                         print(f"[Alg:{self.alg_name}][Rank {rank}] Config saved")
 
-                # Barrier so all ranks wait for rank 0 to finish writing
                 if torch.distributed.is_initialized():
                     torch.distributed.barrier()
             else:
-                # Legacy path: ZeRO-3 gather + write (original behavior)
-                # save_16bit_model internally handles zero-3 gathering from all ranks
                 self.policy_engine.save_16bit_model(output_dir)
 
-                # Barrier to ensure all ranks finished writing before rank 0 fixes state dict
                 if torch.distributed.is_initialized():
                     torch.distributed.barrier()
 
-                # Fix state dict on rank 0 if using LoRA
                 if rank == 0 and self.lora_config and self.lora_config.enabled:
-                    checkpoint_files = glob.glob(os.path.join(output_dir, "*.bin")) + \
-                                      glob.glob(os.path.join(output_dir, "*.safetensors"))
+                    print(f"[Alg:{self.alg_name}][Rank {rank}] Stripping PEFT prefixes and merging weights...")
+                    fix_lora_checkpoint_files(
+                        output_dir, self.lora_config.lora_alpha, self.lora_config.r
+                    )
 
-                    if checkpoint_files:
-                        print(f"[Alg:{self.alg_name}][Rank {rank}] Stripping PEFT prefixes and merging weights in {len(checkpoint_files)} files...")
-                        for ckpt_path in checkpoint_files:
-                            is_safetensors = ckpt_path.endswith(".safetensors")
-                            if is_safetensors:
-                                from safetensors.torch import load_file, save_file
-                                sd = load_file(ckpt_path)
-                            else:
-                                sd = torch.load(ckpt_path, map_location="cpu")
-
-                            sd = self._strip_lora_and_merge(sd)
-
-                            if is_safetensors:
-                                from safetensors.torch import save_file
-                                save_file(sd, ckpt_path)
-                            else:
-                                torch.save(sd, ckpt_path)
-
-                # Save config on rank 0
                 if rank == 0:
-                    config = self._get_base_model_config()
+                    config = get_base_model_config(self.policy_engine)
                     if config is not None:
                         config.save_pretrained(output_dir)
                         print(f"[Alg:{self.alg_name}][Rank {rank}] Config saved")
