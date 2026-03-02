@@ -253,3 +253,41 @@ Contributions are welcome. Please follow the existing architectural patterns and
 ## FAQ
 
 Check out the [FAQ](FAQ.md) for details on LoRA merging and Multimodal input formatting.
+
+---
+
+## Appendix: Why oxRL Uses Rollouts (Not an "Inference Server")
+
+There is a growing claim in the community that the concept of a "rollout" is outdated and that inference servers are the new paradigm. We disagree. Here is our analysis of the debate and why oxRL is designed the way it is.
+
+### The Claim
+
+> "Rollout is outdated. Inference server is the new trend."
+
+### Why This Is a Category Error
+
+An inference server is not a *replacement* for rollouts — it is an *implementation strategy* for rollouts. Every RL training loop for LLMs still performs rollouts: the policy model autoregressively generates trajectories that are scored and used for gradient updates. The question is only **where and how** that generation happens.
+
+| | Co-located (e.g. veRL HybridEngine) | Disaggregated (e.g. OpenRLHF, StreamRL) |
+|---|---|---|
+| Rollout runs on | Same GPUs as training | Separate inference server |
+| Weight sync | In-memory NCCL | Network transfer |
+| Scaling | Coupled | Independent |
+
+Both approaches still generate rollouts. The "inference server" camp is running rollouts on a dedicated vLLM/SGLang process instead of in-process. That is an infrastructure decision, not a conceptual paradigm shift.
+
+### Evidence Against "Rollouts Are Dead"
+
+1. **NVIDIA is scaling rollouts *up*, not phasing them out.** [BroRL](https://developer.nvidia.com/blog/breaking-through-rl-training-limits-with-scaling-rollouts-in-brorl/) pushes rollout counts from N=16 to N=512 per prompt and demonstrates this breaks through performance ceilings where step-scaling cannot. If rollouts were obsolete, the latest NVIDIA research would not make them the primary scaling axis.
+
+2. **Disaggregation has real costs.** Serialization overhead, network bandwidth for weight sync, and added orchestration complexity. Co-located approaches like veRL's HybridEngine avoid weight transfer overhead entirely by keeping generation and training on the same devices.
+
+3. **The motivation for disaggregation is agentic RL, not rollout obsolescence.** Co-located rollouts break down when you need multi-turn tool use, because synchronous batch processing cannot handle variable-latency tool calls. That is a real constraint for agentic workloads — but it is a specific use case, not a universal indictment of rollouts.
+
+4. **"Inference server" is rebranding.** Putting an HTTP endpoint in front of your rollout worker does not change the fundamental computation. [StreamRL](https://arxiv.org/abs/2504.15930) achieves a 2.66x throughput improvement through stream generation and skewness-aware scheduling — engineering wins *on the rollout pipeline*, not alternatives to it.
+
+### Where oxRL Stands
+
+oxRL uses **co-located vLLM rollouts** by design. For standard RL post-training (GRPO, PPO, RLHF) on math, reasoning, and coding tasks — which is the vast majority of practical post-training — this architecture is simpler, avoids network overhead, and produces fully reproducible training runs. We prioritize **debuggability over pipelining**.
+
+If and when agentic multi-turn RL with tool use becomes the dominant training paradigm, disaggregated inference will be the right call. Until then, saying "rollout is outdated" is like saying "compilation is outdated because we use build servers now." The build server *does* the compilation. The inference server *does* the rollout. The abstraction changed; the computation did not.
