@@ -112,7 +112,7 @@ def rollout_engine_setup(params, reward_fnc, eos_id):
     }
 
     num_rollout_engines = max(1, rollout_gpus // tp)
-    _rollout_env_vars = {"VLLM_USE_V1": "0"}
+    _rollout_env_vars = {"VLLM_ENABLE_V1_MULTIPROCESSING": "0"}
     for _env_key in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "CUDA_HOME"):
         if os.environ.get(_env_key):
             _rollout_env_vars[_env_key] = os.environ[_env_key]

@@ -143,8 +143,10 @@ class VLLMRolloutEngine:
                 pass
 
         # Load new model
-        # Use V0 engine to avoid subprocess GPU isolation issues with Ray
-        os.environ["VLLM_USE_V1"] = "0"
+        # Disable V1 multiprocessing to keep everything in the same process.
+        # This avoids subprocess GPU isolation issues when running under Ray.
+        # (VLLM_USE_V1=0 is no longer recognized in vLLM >= 0.15; V1 is the only engine.)
+        os.environ["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"
         try:
             self.vllm_engine = LLM(model=self.model_path,
                                    trust_remote_code=self.trust_remote_code,
