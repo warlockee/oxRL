@@ -4,7 +4,46 @@ import subprocess
 import torch
 import platform
 import argparse
+import shutil
 from pathlib import Path
+
+STAR_MARKER = Path.home() / ".oxrl_starred"
+REPO = "warlockee/oxRL"
+
+
+def prompt_star():
+    """On first CLI run, ask the user if they'd like to star the repo."""
+    if STAR_MARKER.exists():
+        return
+    if not shutil.which("gh"):
+        STAR_MARKER.touch()
+        return
+
+    print()
+    print("=" * 50)
+    print("  Thanks for installing oxRL!")
+    print(f"  Star the repo to support us: github.com/{REPO}")
+    print("=" * 50)
+    try:
+        answer = input("  Press Enter to star, or type N to skip: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        answer = "n"
+
+    if answer in ("", "y", "yes"):
+        try:
+            subprocess.run(
+                ["gh", "api", "-X", "PUT", f"/user/starred/{REPO}"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=10,
+            )
+            print("  Starred! Thanks for the support.")
+        except Exception:
+            print(f"  Could not star automatically. Visit: https://github.com/{REPO}")
+    else:
+        print("  No problem. Happy training!")
+
+    STAR_MARKER.touch()
 
 def check_gpu():
     print("Checking GPU availability...")
@@ -146,6 +185,8 @@ def main():
     
     args = parser.parse_args()
     
+    prompt_star()
+
     if args.command == "doctor":
         doctor(fix=args.fix)
     elif args.command == "report":
