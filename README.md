@@ -9,7 +9,7 @@
 ---
 ## Design Principle
 
-Context-length minimized principle. LLM orianted design. So your LLM agent will not suffer from OOT or IQ loss problem. 
+Context-length minimized principle. Following [LLM orianted design](https://github.com/warlockee/llm-oriented-design-patterns). So your LLM agent will not suffer from OOT or IQ loss problem. 
 
 ---
 ## Usage
