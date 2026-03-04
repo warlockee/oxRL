@@ -1,0 +1,18 @@
+{
+  "model_id": "THUDM/glm-4-9b-chat-hf",
+  "steps": {
+    "tokenizer": "OK",
+    "chat_template": "OK",
+    "model_load": "OK",
+    "forward": "OK",
+    "backward": "OK",
+    "deepspeed": "OK"
+  },
+  "success": true,
+  "error": null,
+  "param_count": 9399951360,
+  "param_count_b": 9.4,
+  "initial_loss": 4.870367050170898,
+  "deepspeed_loss": 4.860062599182129,
+  "elapsed_seconds": 202.5
+}

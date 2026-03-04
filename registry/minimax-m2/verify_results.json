@@ -1,0 +1,20 @@
+{
+  "model_id": "MiniMaxAI/MiniMax-M2",
+  "steps": {
+    "tokenizer": "OK",
+    "chat_template": "OK",
+    "config": "OK",
+    "model_load": "SKIP (230B total / 10B active -- requires 8+ A100-80GB)",
+    "deepspeed": "SKIP (hardware insufficient)"
+  },
+  "success": false,
+  "error": "MiniMax-M2 is 230B total / 10B active params. Requires 8+ A100-80GB GPUs. Only 4 A100-40GB available.",
+  "param_count_b": 230.0,
+  "notes": [
+    "Smallest MiniMax text model is MiniMax-M2 (230B total, 10B active, MoE)",
+    "No smaller MiniMax text models exist on HuggingFace",
+    "Requires int8 quantization minimum (~230GB) + 8x A100-80GB GPUs",
+    "At bf16, model weights alone are ~460GB",
+    "Our hardware: 8x A100-40GB (320GB total) with only 4 GPUs free (160GB)"
+  ]
+}

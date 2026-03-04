@@ -1,0 +1,18 @@
+{
+  "model_id": "google/gemma-3-4b-it",
+  "steps": {
+    "tokenizer": "OK",
+    "chat_template": "OK",
+    "model_load": "OK",
+    "forward": "OK",
+    "backward": "OK",
+    "deepspeed": "OK"
+  },
+  "success": true,
+  "error": null,
+  "param_count": 4300079472,
+  "param_count_b": 4.3,
+  "initial_loss": 4.042081356048584,
+  "deepspeed_loss": 4.0709228515625,
+  "elapsed_seconds": 97.1
+}

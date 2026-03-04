@@ -1,0 +1,18 @@
+{
+  "model_id": "moonshotai/Kimi-VL-A3B-Instruct",
+  "steps": {
+    "tokenizer": "OK",
+    "chat_template": "OK",
+    "model_load": "OK",
+    "forward": "SKIPPED (large model, verified via DeepSpeed)",
+    "backward": "SKIPPED (large model, verified via DeepSpeed)",
+    "deepspeed": "OK"
+  },
+  "success": true,
+  "error": null,
+  "param_count": 16407656048,
+  "param_count_b": 16.41,
+  "deepspeed_loss": 3.332707643508911,
+  "initial_loss": 3.332707643508911,
+  "elapsed_seconds": 205.1
+}

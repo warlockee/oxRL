@@ -1,0 +1,26 @@
+{
+  "model_id": "moonshotai/Kimi-Linear-48B-A3B-Instruct",
+  "steps": {
+    "tokenizer": "OK",
+    "chat_template": "OK",
+    "model_load": "OK (CPU, device_map='cpu')",
+    "forward": "SKIPPED (49B params requires 8+ GPUs for ZeRO-3)",
+    "backward": "SKIPPED (49B params requires 8+ GPUs for ZeRO-3)",
+    "deepspeed": "PARTIAL (4 GPUs insufficient, needs 8+ free A100-40GB GPUs for 49B MoE)"
+  },
+  "success": false,
+  "error": "CUDA OOM: 49B total params (3B active MoE) requires 8+ A100-40GB GPUs with ZeRO-3 + CPU offloading. Only 4 GPUs available.",
+  "param_count": 49122681728,
+  "param_count_b": 49.12,
+  "notes": [
+    "Tokenizer loads OK (vocab_size=163842, pad_token=[PAD])",
+    "Chat template works (formatted_length=95)",
+    "Model loads to CPU successfully (device_map='cpu', 0 GPU memory)",
+    "Model class: KimiLinearForCausalLM (256 experts, 8 active)",
+    "Requires fla-core package (pip install fla-core)",
+    "Requires auto_docstring union type patch (Python 3.10 compat)",
+    "Model remote code forces flash_attention_2 (patched to accept eager)",
+    "DeepSpeed ZeRO-3 + CPU offloading with 4 GPUs OOMs (~35GB/GPU for 24.5GB partition + overhead)",
+    "Needs 8+ A100-40GB GPUs for ZeRO-3 training"
+  ]
+}
