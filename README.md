@@ -6,6 +6,25 @@
 
 <p align="center">A lightweight post-training framework for LLMs and VLMs. Maximizing developer speed. Scales to billions of parameters with DeepSpeed, vLLM, and Ray.</p>
 
+<p align="center">
+  <a href="https://pypi.org/project/oxrl/"><img src="https://img.shields.io/pypi/v/oxrl?color=blue" alt="PyPI"></a>
+  <a href="https://github.com/warlockee/oxRL/stargazers"><img src="https://img.shields.io/github/stars/warlockee/oxRL?style=social" alt="Stars"></a>
+  <a href="https://colab.research.google.com/github/warlockee/oxRL/blob/main/examples/oxrl_quickstart.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"></a>
+  <a href="https://github.com/warlockee/oxRL/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="License"></a>
+</p>
+
+---
+
+## Why oxRL?
+
+| | oxRL | TRL | OpenRLHF |
+|---|---|---|---|
+| **Algorithms** | 51 | ~12 | ~5 |
+| **Verified Models** | 38 | — | — |
+| **Lines to train** | 3 | ~30 | ~50 |
+| **RL Engine** | vLLM + Ray | Native | vLLM + Ray |
+| **SL Engine** | DeepSpeed | Native | DeepSpeed |
+
 ---
 ## Design Principle
 
