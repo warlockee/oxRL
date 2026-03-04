@@ -31,12 +31,66 @@ from oxrl.algs.rft import RFT
 from oxrl.algs.spin import SPIN
 from oxrl.algs.ipo import IPO
 from oxrl.algs.simpo import SimPO
+from oxrl.algs.cpo import CPO
+from oxrl.algs.alphapo import AlphaPO
+from oxrl.algs.rdpo import RDPO
+from oxrl.algs.cdpo import CDPO
+from oxrl.algs.betadpo import BetaDPO
+from oxrl.algs.caldpo import CalDPO
+from oxrl.algs.sppo import SPPO
+from oxrl.algs.aot import AOT
+from oxrl.algs.apo import APO
+from oxrl.algs.nca import NCA
+from oxrl.algs.hinge import Hinge
+from oxrl.algs.robust_dpo import RobustDPO
+from oxrl.algs.exo import EXO
+from oxrl.algs.discopop import DiscoPOP
+from oxrl.algs.bco import BCO
+from oxrl.algs.odpo import ODPO
+from oxrl.algs.dpop import DPOP
+from oxrl.algs.focalpo import FocalPO
+from oxrl.algs.gpo import GPO
+from oxrl.algs.wpo import WPO
+from oxrl.algs.fdpo import FDPO
+from oxrl.algs.hdpo import HDPO
+from oxrl.algs.dposhift import DPOShift
+from oxrl.algs.cposimpo import CPOSimPO
+from oxrl.algs.sampo import SamPO
+from oxrl.algs.drdpo import DrDPO
+from oxrl.algs.chipo import ChiPO
+from oxrl.algs.spo import SPO
+from oxrl.algs.dpnll import DPNLL
+from oxrl.algs.minor_dpo import MinorDPO
+from oxrl.algs.c2dpo import C2DPO
+from oxrl.algs.alpha_dpo import AlphaDPO
+from oxrl.algs.bpo import BPO
 
 SL_ALGORITHMS = {
     "sft": SFT, "dpo": DPO, "orpo": ORPO, "kto": KTO,
     "cpt": CPT, "kd": KD, "rm": RM,
     "online_dpo": OnlineDPO, "rft": RFT, "spin": SPIN,
-    "ipo": IPO, "simpo": SimPO,
+    "ipo": IPO, "simpo": SimPO, "cpo": CPO, "alphapo": AlphaPO,
+    "rdpo": RDPO, "cdpo": CDPO, "betadpo": BetaDPO,
+    "caldpo": CalDPO, "sppo": SPPO, "aot": AOT,
+    "apo": APO, "nca": NCA, "hinge": Hinge,
+    "robust_dpo": RobustDPO, "exo": EXO, "discopop": DiscoPOP,
+    "bco": BCO, "odpo": ODPO,
+    "dpop": DPOP, "focalpo": FocalPO,
+    "gpo": GPO,
+    "wpo": WPO,
+    "fdpo": FDPO,
+    "hdpo": HDPO,
+    "dposhift": DPOShift,
+    "cposimpo": CPOSimPO,
+    "sampo": SamPO,
+    "drdpo": DrDPO,
+    "chipo": ChiPO,
+    "spo": SPO,
+    "dpnll": DPNLL,
+    "minor_dpo": MinorDPO,
+    "c2dpo": C2DPO,
+    "alpha_dpo": AlphaDPO,
+    "bpo": BPO,
 }
 
 def load_models_and_tokenizer(model_name, model_dtype, ref_model_name, trust_remote_code, attn_impl, rank):
@@ -121,7 +175,7 @@ def data_loader_setup(params, tokenizer, rank, world_size, batch_size, split):
     data_path = params.data.train_files_path if split == 'train' else params.data.val_files_path
     
     alg_name = params.train.alg_name.lower()
-    if alg_name in ["dpo", "orpo", "kto", "rm", "spin", "online_dpo", "ipo", "simpo"]:
+    if alg_name in ["dpo", "orpo", "kto", "rm", "spin", "online_dpo", "ipo", "simpo", "cpo", "alphapo", "rdpo", "cdpo", "betadpo", "caldpo", "sppo", "aot", "apo", "nca", "hinge", "robust_dpo", "exo", "discopop", "bco", "odpo", "dpop", "focalpo", "gpo", "wpo", "fdpo", "hdpo", "dposhift", "cposimpo", "sampo", "drdpo", "chipo", "spo", "dpnll", "minor_dpo", "c2dpo", "alpha_dpo", "bpo"]:
         dataset = PromptPreferenceDataset(prompt_key=params.data.prompt_key,
                                           chosen_key=params.data.chosen_key,
                                           rejected_key=params.data.rejected_key,
@@ -168,6 +222,7 @@ if __name__ == "__main__":
     parser.add_argument("--config-file", type=str, default="./config/dummy.yaml", help="config file")
     parser.add_argument("--experiment_id", type=str, default="run_1", help="experiment id")
     parser.add_argument("--log-level", type=str, default="INFO", help="logging level")
+    parser.add_argument("--local_rank", type=int, default=-1, help="local rank passed by deepspeed launcher")
     args = parser.parse_args()
 
     ########
@@ -299,6 +354,233 @@ if __name__ == "__main__":
                        optimizer=optimizer,
                        beta=config.train.beta,
                        gamma=config.train.simpo_gamma,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "cpo":
+        alg = alg_cls(model_engine=model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       cpo_alpha=config.train.cpo_alpha,
+                       loss_type=config.train.cpo_loss_type,
+                       label_smoothing=config.train.cpo_label_smoothing,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "alphapo":
+        alg = alg_cls(model_engine=model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       gamma=config.train.simpo_gamma,
+                       alpha=config.train.alphapo_alpha,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "rdpo":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       alpha=config.train.rdpo_alpha,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "cdpo":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       label_smoothing=config.train.cdpo_label_smoothing,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "betadpo":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       betadpo_alpha=config.train.betadpo_alpha,
+                       betadpo_ema_gamma=config.train.betadpo_ema_gamma,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "caldpo":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       caldpo_lambda=config.train.caldpo_lambda,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "sppo":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "aot":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "apo":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       apo_mode=config.train.apo_mode,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "nca":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "hinge":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "robust_dpo":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       label_smoothing=config.train.robust_dpo_label_smoothing,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "exo":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       exo_epsilon=config.train.exo_epsilon,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "discopop":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       discopop_tau=config.train.discopop_tau,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "bco":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "odpo":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       odpo_delta=config.train.odpo_delta,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "dpop":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       dpop_lambda=config.train.dpop_lambda,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "focalpo":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       focalpo_gamma=config.train.focalpo_gamma,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "gpo":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       gpo_loss_type=config.train.gpo_loss_type,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "wpo":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       label_smoothing=config.train.wpo_label_smoothing,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "fdpo":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       fdpo_divergence=config.train.fdpo_divergence,
+                       fdpo_alpha=config.train.fdpo_alpha,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "hdpo":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       hdpo_alpha=config.train.hdpo_alpha,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "dposhift":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       shift_lambda=config.train.dposhift_lambda,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "cposimpo":
+        alg = alg_cls(model_engine=model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       gamma=config.train.simpo_gamma,
+                       cposimpo_alpha=config.train.cposimpo_alpha,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "sampo":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "drdpo":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       beta_prime=config.train.drdpo_beta_prime,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "chipo":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "spo":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "dpnll":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       dpnll_alpha=config.train.dpnll_alpha,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "minor_dpo":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "c2dpo":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       c2_lambda=config.train.c2dpo_lambda,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "alpha_dpo":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       alpha_dpo_alpha=config.train.alpha_dpo_alpha,
+                       alpha_dpo_gamma_beta_ratio=config.train.alpha_dpo_gamma_beta_ratio,
+                       alpha_dpo_ema_decay=config.train.alpha_dpo_ema_decay,
+                       use_cache=config.model.use_cache)
+    elif alg_name == "bpo":
+        alg = alg_cls(model_engine=model_engine,
+                       ref_model_engine=ref_model_engine,
+                       optimizer=optimizer,
+                       beta=config.train.beta,
+                       balance_factor=config.train.bpo_balance_factor,
                        use_cache=config.model.use_cache)
 
     ########

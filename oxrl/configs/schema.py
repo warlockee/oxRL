@@ -106,6 +106,84 @@ class Train(BaseModel):
     # SimPO
     simpo_gamma: float = 0.5
 
+    # CPO (Contrastive Preference Optimization)
+    cpo_alpha: float = 1.0       # Weight of BC regularization (NLL on chosen)
+    cpo_loss_type: str = "sigmoid"  # "sigmoid" or "hinge"
+    cpo_label_smoothing: float = 0.0
+
+    # AlphaPO (reward shape transformation for SimPO)
+    alphapo_alpha: float = 1.0   # Reward shape parameter (0.0 = standard SimPO)
+
+    # R-DPO (length-regularized DPO)
+    rdpo_alpha: float = 0.01    # Length regularization coefficient
+
+    # cDPO (conservative DPO with label smoothing)
+    cdpo_label_smoothing: float = 0.1  # Label noise probability (0.0 = standard DPO)
+
+    # beta-DPO (dynamic beta per sample)
+    betadpo_alpha: float = 0.5    # Scaling factor for beta adaptation (0.0 = standard DPO)
+    betadpo_ema_gamma: float = 0.9  # EMA decay for advantage gap running mean
+
+    # Cal-DPO (calibrated DPO)
+    caldpo_lambda: float = 1.0   # Weight of calibration loss (0.0 = BT preference loss only)
+
+    # APO (Anchored Preference Optimization)
+    apo_mode: str = "zero"       # "zero" (increase chosen, decrease rejected) or "down" (decrease both)
+
+    # Robust DPO (unbiased DPO under label noise)
+    robust_dpo_label_smoothing: float = 0.1  # Label flip probability in [0, 0.5)
+
+    # EXO (reverse KL preference optimization)
+    exo_epsilon: float = 1e-3    # Label smoothing for reverse KL (must be > 0)
+
+    # DiscoPOP (log-ratio modulated loss)
+    discopop_tau: float = 0.05   # Temperature for logistic/exponential blending
+
+    # ODPO (DPO with offset)
+    odpo_delta: float = 1.0      # Offset for preference strength threshold (0.0 = standard DPO)
+
+    # DPOP (DPO-Positive / Smaug)
+    dpop_lambda: float = 5.0     # Penalty for chosen likelihood dropping below reference
+
+    # FocalPO (focal preference optimization)
+    focalpo_gamma: float = 1.0   # Focal parameter (0.0 = standard DPO)
+
+    # GPO (Generalized Preference Optimization, ICML 2024)
+    gpo_loss_type: str = "exponential"  # "logistic", "exponential", "truncated_quadratic", "savage"
+
+    # WPO (Weighted Preference Optimization, EMNLP 2024)
+    wpo_label_smoothing: float = 0.0  # Optional label smoothing for WPO (0.0 = none)
+
+    # f-DPO (f-Divergence DPO, ICLR 2024)
+    fdpo_divergence: str = "reverse_kl"  # "reverse_kl", "forward_kl", "js_divergence", "alpha_divergence"
+    fdpo_alpha: float = 0.5  # Alpha parameter for alpha_divergence (0->forward_kl, 1->reverse_kl)
+
+    # H-DPO (Entropy Controllable DPO, 2024)
+    hdpo_alpha: float = 1.0  # Entropy coefficient (<1: sharper/mode-seeking, =1: DPO, >1: diverse)
+
+    # DPO-Shift (Shifting the Distribution of DPO, 2025)
+    dposhift_lambda: float = 0.5  # Rejected scaling factor (0, 1]; 1.0 = standard DPO
+
+    # CPO-SimPO (CPO + SimPO combined, reference-free)
+    cposimpo_alpha: float = 1.0  # Weight of BC/NLL regularization (0.0 = SimPO only)
+
+    # Dr. DPO (Distributionally Robust DPO, ICLR 2025)
+    drdpo_beta_prime: float = 1.0  # DRO temperature; inf = DPO, 0 = worst-case focus
+
+    # DPO+NLL (DPO with NLL regularization on chosen responses)
+    dpnll_alpha: float = 1.0  # Weight of NLL regularization; 0 = pure DPO
+
+    # C2-DPO (Constrained Controlled DPO, 2025)
+    c2dpo_lambda: float = 2e-4  # Weight of constraint penalty; 0 = pure DPO
+
+    # AlphaDPO (Adaptive Reward Margin, ICML 2025)
+    alpha_dpo_alpha: float = 0.1  # Adaptive margin strength; 0 = fixed margin only
+    alpha_dpo_gamma_beta_ratio: float = 0.3  # Base margin / beta ratio
+    alpha_dpo_ema_decay: float = 0.99  # EMA decay for gap statistics
+
+    # BPO (Balanced Preference Optimization, 2025)
+    bpo_balance_factor: float = 0.3  # Scale rejected term in min(); 1.0 = symmetric min
+
     # PPO
     ppo_vf_clip: float = 0.2
     ppo_tau: float = 0.95

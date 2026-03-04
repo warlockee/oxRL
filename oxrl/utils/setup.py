@@ -5,6 +5,10 @@ import torch
 from transformers import AutoTokenizer
 
 _sliding_window_patched = False
+_loss_kwargs_patched = False
+_pytorch_gelu_tanh_patched = False
+_cache_usable_length_patched = False
+_auto_docstring_patched = False
 
 def ensure_sliding_window_cache():
     """
@@ -25,8 +29,177 @@ def ensure_sliding_window_cache():
         _cu.SlidingWindowCache = SlidingWindowCache
     _sliding_window_patched = True
 
+
+def ensure_loss_kwargs():
+    """
+    Monkey-patch missing LossKwargs for Phi-4-mini remote code compatibility.
+    In transformers>=4.54, LossKwargs was removed from transformers.utils.
+    Models with stale remote code (e.g. Phi-4-mini-instruct) still try to
+    import it.  We inject a minimal stub so the import succeeds.
+    Safe to call multiple times; only patches once.
+    """
+    global _loss_kwargs_patched
+    if _loss_kwargs_patched:
+        return
+    try:
+        from transformers.utils import LossKwargs  # noqa: F401
+    except ImportError:
+        import transformers.utils as _tu
+        from typing import Optional
+        try:
+            from typing import TypedDict
+        except ImportError:
+            from typing_extensions import TypedDict
+
+        class LossKwargs(TypedDict, total=False):
+            """Stub for models that import LossKwargs (removed in transformers>=4.54)."""
+            num_items_in_batch: Optional[int]
+
+        _tu.LossKwargs = LossKwargs
+    _loss_kwargs_patched = True
+
+
+def ensure_pytorch_gelu_tanh():
+    """
+    Monkey-patch missing PytorchGELUTanh for Kimi-VL compatibility.
+    Some remote model code (e.g. moonshotai/Kimi-VL) imports PytorchGELUTanh
+    from transformers.activations, but it was removed/renamed in newer versions.
+    Safe to call multiple times; only patches once.
+    """
+    global _pytorch_gelu_tanh_patched
+    if _pytorch_gelu_tanh_patched:
+        return
+    try:
+        from transformers.activations import PytorchGELUTanh  # noqa: F401
+    except ImportError:
+        import transformers.activations as _acts
+        import torch.nn as nn
+        class PytorchGELUTanh(nn.Module):
+            """Stub: GELU with tanh approximation for models that import PytorchGELUTanh."""
+            def __init__(self):
+                super().__init__()
+                self.act = nn.GELU(approximate="tanh")
+            def forward(self, input):
+                return self.act(input)
+        _acts.PytorchGELUTanh = PytorchGELUTanh
+    _pytorch_gelu_tanh_patched = True
+
+
+def ensure_cache_usable_length():
+    """
+    Monkey-patch DynamicCache for backward compatibility with old transformers API.
+    In transformers>=4.57, DynamicCache was refactored:
+      - key_cache/value_cache lists replaced by layers[i].keys/values
+      - get_usable_length removed (use get_seq_length instead)
+    Models with stale remote code (e.g. moonshotai/Kimi-VL) still use the old API.
+    Safe to call multiple times; only patches once.
+    """
+    global _cache_usable_length_patched
+    if _cache_usable_length_patched:
+        return
+    from transformers.cache_utils import DynamicCache
+
+    # Add get_usable_length if missing
+    if not hasattr(DynamicCache, 'get_usable_length'):
+        def _get_usable_length(self, new_seq_length, layer_idx=None):
+            """Return the length of the already-cached key/value pairs."""
+            if layer_idx is not None:
+                return self.get_seq_length(layer_idx)
+            return self.get_seq_length()
+        DynamicCache.get_usable_length = _get_usable_length
+
+    # Add key_cache property if missing (delegates to layers[i].keys)
+    if not hasattr(DynamicCache, 'key_cache'):
+        class _KeyCacheProxy:
+            """Proxy list that maps index access to layers[i].keys."""
+            def __init__(self, cache):
+                self._cache = cache
+            def __len__(self):
+                return len(self._cache.layers)
+            def __getitem__(self, idx):
+                if idx < len(self._cache.layers):
+                    return self._cache.layers[idx].keys
+                raise IndexError(f"layer {idx} not in cache (have {len(self._cache.layers)} layers)")
+            def __setitem__(self, idx, value):
+                if idx < len(self._cache.layers):
+                    self._cache.layers[idx].keys = value
+                else:
+                    raise IndexError(f"layer {idx} not in cache")
+            def append(self, value):
+                pass  # layers managed by update()
+
+        @property
+        def _key_cache_prop(self):
+            return _KeyCacheProxy(self)
+        DynamicCache.key_cache = _key_cache_prop
+
+    # Add value_cache property if missing
+    if not hasattr(DynamicCache, 'value_cache'):
+        class _ValueCacheProxy:
+            """Proxy list that maps index access to layers[i].values."""
+            def __init__(self, cache):
+                self._cache = cache
+            def __len__(self):
+                return len(self._cache.layers)
+            def __getitem__(self, idx):
+                if idx < len(self._cache.layers):
+                    return self._cache.layers[idx].values
+                raise IndexError(f"layer {idx} not in cache (have {len(self._cache.layers)} layers)")
+            def __setitem__(self, idx, value):
+                if idx < len(self._cache.layers):
+                    self._cache.layers[idx].values = value
+                else:
+                    raise IndexError(f"layer {idx} not in cache")
+            def append(self, value):
+                pass  # layers managed by update()
+
+        @property
+        def _value_cache_prop(self):
+            return _ValueCacheProxy(self)
+        DynamicCache.value_cache = _value_cache_prop
+
+    _cache_usable_length_patched = True
+
+
+def ensure_auto_docstring_union_type():
+    """
+    Monkey-patch transformers auto_docstring to handle Python 3.10+ union types.
+    In Python 3.10, `X | Y` creates a `types.UnionType` which doesn't have `__name__`.
+    The transformers auto_docstring code tries to access `param.annotation.__name__`
+    which fails for union types. We patch _process_parameter_type to handle this.
+    Safe to call multiple times; only patches once.
+    """
+    global _auto_docstring_patched
+    if _auto_docstring_patched:
+        return
+    import types as _types
+    import sys as _sys
+    try:
+        import importlib
+        _ad = importlib.import_module('transformers.utils.auto_docstring')
+        if hasattr(_ad, '_process_parameter_type'):
+            _orig_fn = _ad._process_parameter_type
+            import inspect as _inspect
+
+            def _patched_process_parameter_type(param, param_name, func):
+                # Handle types.UnionType (e.g., int | None) which lacks __name__
+                if param.annotation != _inspect.Parameter.empty:
+                    if isinstance(param.annotation, _types.UnionType):
+                        return str(param.annotation), True
+                return _orig_fn(param, param_name, func)
+
+            _ad._process_parameter_type = _patched_process_parameter_type
+    except (ImportError, AttributeError):
+        pass  # Old transformers version without auto_docstring
+    _auto_docstring_patched = True
+
+
 # Apply at import time for modules that import utils/setup.py
 ensure_sliding_window_cache()
+ensure_loss_kwargs()
+ensure_pytorch_gelu_tanh()
+ensure_cache_usable_length()
+ensure_auto_docstring_union_type()
 
 def set_random_seeds(seed):
     '''
@@ -112,10 +285,14 @@ def load_tokenizer(model_name, trust_remote_code=False, rank=0):
 
     return tokenizer
 
-def load_model_and_ref(model_path, model_dtype, trust_remote_code, attn_impl, ref_model_path=None):
+def load_model_and_ref(model_path, model_dtype, trust_remote_code, attn_impl, ref_model_path=None, device_map=None):
     '''
         Unified loader for CausalLM, Multimodal, and ImageText models.
         Handles architecture fallbacks automatically.
+
+        Args:
+            device_map: Optional device_map passed to from_pretrained (e.g. 'cpu', 'auto').
+                        Use 'cpu' for very large models that will be sharded by DeepSpeed.
     '''
     from transformers import AutoModelForCausalLM, AutoModelForImageTextToText, AutoConfig, AutoModel
     try:
@@ -127,7 +304,7 @@ def load_model_and_ref(model_path, model_dtype, trust_remote_code, attn_impl, re
         load_classes = [AutoModelForCausalLM, AutoModelForImageTextToText]
         if AutoModelForMultimodalLM:
             load_classes.append(AutoModelForMultimodalLM)
-        
+
         # Architecture-specific fallbacks
         try:
             from transformers import Qwen2VLForConditionalGeneration
@@ -138,22 +315,28 @@ def load_model_and_ref(model_path, model_dtype, trust_remote_code, attn_impl, re
             load_classes.append(Qwen2AudioForConditionalGeneration)
         except ImportError: pass
 
+        extra_kwargs = {}
+        if device_map is not None:
+            extra_kwargs['device_map'] = device_map
+
         for cls in load_classes:
             try:
                 return cls.from_pretrained(path,
                                           dtype=model_dtype,
                                           trust_remote_code=trust_remote_code,
                                           config=cfg,
-                                          attn_implementation=None if attn_impl == '' else attn_impl)
+                                          attn_implementation=None if attn_impl == '' else attn_impl,
+                                          **extra_kwargs)
             except (ValueError, TypeError):
                 continue
-        
+
         # Ultimate fallback
         return AutoModel.from_pretrained(path,
                                         dtype=model_dtype,
                                         trust_remote_code=trust_remote_code,
                                         config=cfg,
-                                        attn_implementation=None if attn_impl == '' else attn_impl)
+                                        attn_implementation=None if attn_impl == '' else attn_impl,
+                                        **extra_kwargs)
 
     # Load Main Model
     config = AutoConfig.from_pretrained(model_path, trust_remote_code=trust_remote_code)

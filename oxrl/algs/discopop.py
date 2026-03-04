@@ -1,0 +1,175 @@
+import torch
+import torch.nn.functional as F
+from typing import Dict, Any
+
+class DiscoPOP:
+    """
+    DiscoPOP: Discovering Preference Optimization Algorithms with LLMs.
+
+    Reference: "Discovering Preference Optimization Algorithms with and for
+    Large Language Models" (Lu et al., 2024). https://arxiv.org/abs/2406.08414
+    Published at NeurIPS 2024.
+
+    DiscoPOP uses an LLM-discovered loss called LRML (Log-Ratio Modulated
+    Loss) that adaptively blends logistic (DPO) and exponential losses
+    based on the current log-ratio. When the log-ratio is small (uncertain),
+    it uses the logistic loss; when large (confident), it uses the
+    exponential loss for sharper optimization.
+
+    Loss:
+        L_discopop = w(x) * f_dpo(x) + (1 - w(x)) * f_exp(x)
+
+    where:
+        x = beta * (log_ratio_w - log_ratio_l)
+        w(x) = 1 - sigmoid(x / tau)    (blending weight)
+        f_dpo(x) = log(1 + exp(-x))    (logistic / DPO loss)
+        f_exp(x) = exp(-x)             (exponential loss)
+        tau = temperature (default 0.05)
+
+    When tau -> 0: hard switch at x=0 (logistic for x<0, exponential for x>0)
+    When tau -> inf: equal blend (0.5 * logistic + 0.5 * exponential)
+
+    Pro:  Outperforms DPO on multiple benchmarks; adaptive loss shape.
+    Con:  Non-convex loss; extra hyperparameter (tau).
+    """
+    def __init__(self,
+                model_engine,
+                ref_model_engine,
+                optimizer,
+                beta=0.1,
+                discopop_tau=0.05,
+                use_cache=False,
+                normalize_loss=False):
+
+        self.model_engine = model_engine
+        self.ref_model_engine = ref_model_engine
+        self.optimizer = optimizer
+        self.beta = beta
+        self.discopop_tau = discopop_tau
+        self.use_cache = use_cache
+        self.normalize_loss = normalize_loss
+
+    def compute_logps(self, logits, target_ids, loss_mask):
+        '''
+           Computes log probabilities for the given logits and targets.
+           logits: [B, T-1, vocab_size]
+           target_ids: [B, T-1]
+           loss_mask: [B, T-1]
+           Returns:
+               logps: [B]
+        '''
+        log_probs = F.log_softmax(logits, dim=-1)
+        per_token_logps = torch.gather(log_probs, dim=2, index=target_ids.unsqueeze(2)).squeeze(2)
+
+        # Apply mask and sum across sequence length
+        logps = (per_token_logps * loss_mask).sum(-1)
+        return logps
+
+    def forward(self, input_ids, attn_mask, loss_mask, model_engine):
+        '''
+            Forward pass through the given model engine.
+        '''
+        token_type_ids = torch.zeros_like(input_ids)
+
+        output = model_engine(input_ids=input_ids,
+                              attention_mask=attn_mask,
+                              token_type_ids=token_type_ids,
+                              use_cache=self.use_cache)
+
+        logits = output.logits[:, :-1, :].contiguous()
+        target_ids = input_ids[:, 1:].contiguous()
+
+        logps = self.compute_logps(logits, target_ids, loss_mask)
+        return logps
+
+    def compute_loss(self, pi_logps_w, pi_logps_l, ref_logps_w, ref_logps_l):
+        '''
+           DiscoPOP LRML Loss:
+           L = (1 - sigma(x/tau)) * f_dpo(x) + sigma(x/tau) * f_exp(x)
+           where x = beta * (logr_w - logr_l)
+        '''
+        pi_logr_w = pi_logps_w - ref_logps_w
+        pi_logr_l = pi_logps_l - ref_logps_l
+
+        x = self.beta * (pi_logr_w - pi_logr_l)
+
+        # Blending weight: sigmoid(x/tau)
+        w_exp = torch.sigmoid(x / self.discopop_tau)
+        w_dpo = 1.0 - w_exp
+
+        # Component losses
+        f_dpo = F.softplus(-x)       # log(1 + exp(-x)) = softplus(-x)
+        f_exp = torch.exp(-x)        # exponential loss
+
+        # Blended loss
+        loss = (w_dpo * f_dpo + w_exp * f_exp).mean()
+
+        with torch.no_grad():
+            rewards_w = self.beta * pi_logr_w
+            rewards_l = self.beta * pi_logr_l
+            margin = (rewards_w - rewards_l).mean()
+            reward_acc = (rewards_w > rewards_l).float().mean()
+
+        return loss, margin, reward_acc
+
+    def train_step(self, micro_batch):
+        '''
+           One training step for DiscoPOP.
+        '''
+        self.model_engine.train()
+        if self.ref_model_engine is not None:
+            self.ref_model_engine.eval()
+
+        batch_size = micro_batch['chosen_input_ids'].shape[0]
+        input_ids = torch.cat([micro_batch['chosen_input_ids'], micro_batch['rejected_input_ids']], dim=0)
+        attn_mask = torch.cat([micro_batch['chosen_attn_mask'], micro_batch['rejected_attn_mask']], dim=0)
+        loss_mask = torch.cat([micro_batch['chosen_loss_mask'], micro_batch['rejected_loss_mask']], dim=0)
+
+        # Reference model logps
+        with torch.no_grad():
+            ref_logps = self.forward(input_ids, attn_mask, loss_mask, self.ref_model_engine)
+            ref_logps_w, ref_logps_l = torch.split(ref_logps, batch_size, dim=0)
+
+        # Policy model logps
+        pi_logps = self.forward(input_ids, attn_mask, loss_mask, self.model_engine)
+        pi_logps_w, pi_logps_l = torch.split(pi_logps, batch_size, dim=0)
+
+        # Compute DiscoPOP loss
+        loss, margin, reward_acc = self.compute_loss(
+            pi_logps_w, pi_logps_l, ref_logps_w, ref_logps_l)
+
+        # Backward and Step
+        self.model_engine.backward(loss)
+        self.model_engine.step()
+
+        return {
+            "loss": loss.item(),
+            "margin": margin.item(),
+            "reward_acc": reward_acc.item(),
+        }
+
+    def eval_step(self, micro_batch):
+        '''
+           Validation step.
+        '''
+        self.model_engine.eval()
+        with torch.no_grad():
+            batch_size = micro_batch['chosen_input_ids'].shape[0]
+            input_ids = torch.cat([micro_batch['chosen_input_ids'], micro_batch['rejected_input_ids']], dim=0)
+            attn_mask = torch.cat([micro_batch['chosen_attn_mask'], micro_batch['rejected_attn_mask']], dim=0)
+            loss_mask = torch.cat([micro_batch['chosen_loss_mask'], micro_batch['rejected_loss_mask']], dim=0)
+
+            ref_logps = self.forward(input_ids, attn_mask, loss_mask, self.ref_model_engine)
+            ref_logps_w, ref_logps_l = torch.split(ref_logps, batch_size, dim=0)
+
+            pi_logps = self.forward(input_ids, attn_mask, loss_mask, self.model_engine)
+            pi_logps_w, pi_logps_l = torch.split(pi_logps, batch_size, dim=0)
+
+            loss, margin, reward_acc = self.compute_loss(
+                pi_logps_w, pi_logps_l, ref_logps_w, ref_logps_l)
+
+        return {
+            "loss": loss.item(),
+            "margin": margin.item(),
+            "reward_acc": reward_acc.item(),
+        }

@@ -1,0 +1,55 @@
+run:
+  experiment_id: bco_example
+  distributed_training_strategy: deepspeed-zero2
+  checkpoint_dir: ./checkpoints
+  project_name: oxrl-exp
+  tracking_uri: ""
+  seed: 42
+
+lora:
+  enabled: false
+
+train:
+  alg_name: bco
+  optimizer_name: adamw
+  lr: 5.0e-06
+  total_number_of_epochs: 3
+  micro_batches_per_epoch: 100
+  train_batch_size_per_gpu: 2
+  gradient_accumulation_steps: 4
+  val_batch_size_per_gpu: 4
+  beta: 0.1
+
+model:
+  name: Qwen/Qwen2.5-0.5B-Instruct
+  dtype: bfloat16
+  ref_model: Qwen/Qwen2.5-0.5B-Instruct
+  trust_remote_code: true
+  use_cache: false
+  model_class: llm
+  attn_implementation: flash_attention_2
+  gradient_checkpointing: true
+
+data:
+  train_dnames: [preference_data]
+  train_ratios:
+    preference_data: 1.0
+  train_files_path: ./data/preference_train.parquet
+  val_files_path: ./data/preference_val.parquet
+  num_workers: 4
+  max_seq_len: 512
+  prompt_key: prompt
+  answer_key: answer
+  chosen_key: chosen
+  rejected_key: rejected
+
+deepspeed:
+  zero_optimization:
+    stage: 2
+    contiguous_gradients: true
+    overlap_comm: true
+    reduce_scatter: true
+    reduce_bucket_size: 500000000.0
+    allgather_bucket_size: 500000000.0
+  steps_per_print: 100
+  wall_clock_breakdown: false
