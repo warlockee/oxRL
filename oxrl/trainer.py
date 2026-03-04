@@ -6,10 +6,7 @@ import torch
 from pathlib import Path
 from typing import Optional, Any, Dict
 
-# Add project root to path
-PROJECT_ROOT = Path(__file__).parent.parent.absolute()
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+PACKAGE_ROOT = Path(__file__).parent.absolute()
 
 from oxrl.swarm.config_generator import generate_config, save_config
 
@@ -86,28 +83,26 @@ class Trainer:
                 # Add to train by default or keep as is
                 config_dict["train"][key] = val
 
-        # 3. Save config
-        config_dir = PROJECT_ROOT / "registry" / config_dict["run"]["experiment_id"]
+        # 3. Save config to a temp directory that always exists
+        import tempfile
+        config_dir = Path(tempfile.gettempdir()) / "oxrl" / config_dict["run"]["experiment_id"]
         config_dir.mkdir(parents=True, exist_ok=True)
         config_path = config_dir / "config.yaml"
-        
+
         save_config(config_dict, str(config_path))
         print(f"[oxRL] Starting training for {self.model} on task '{task}'")
         print(f"[oxRL] Config: {config_path}")
 
-        # 4. Launch Training
-        # We use subprocess to ensure clean environment and Ray isolation
+        # 4. Launch Training via python -m (works with pip install)
         cmd = [
-            sys.executable,
-            str(PROJECT_ROOT / "main_rl.py"),
+            sys.executable, "-m", "oxrl.main_rl",
             "--config-file", str(config_path),
             "--experiment_id", config_dict["run"]["experiment_id"]
         ]
-        
+
         # Propagate environment variables (HF tokens, etc.)
         env = os.environ.copy()
-        env["PYTHONPATH"] = str(PROJECT_ROOT)
-        
+
         try:
             subprocess.run(cmd, check=True, env=env)
         except subprocess.CalledProcessError as e:
