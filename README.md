@@ -70,6 +70,10 @@ These models have been explicitly verified through our automated onboarding pipe
 | **Qwen2.5-VL-7B-Instruct** | 7.0B | Vision | LoRA |
 | **Qwen3-8B** | 8.0B | Math | LoRA |
 | **Llama-3.1-8B-Instruct** | 8.0B | Reasoning | LoRA |
+| **Gemma-3-4b-it** | 4.3B | Instruct | Full-tuning |
+| **GLM-4-9B-Chat** | 9.4B | Instruct | LoRA |
+| **Kimi-VL-A3B-Instruct** | 16.4B (2.8B active) | Vision | LoRA |
+| **Kimi-VL-A3B-Thinking** | 16.4B (2.8B active) | Vision | LoRA |
 | **Phi-4** | 14.7B | Math | LoRA |
 | **Qwen3.5-27B** | 27.0B | Instruct | LoRA |
 
@@ -186,6 +190,39 @@ python main_rl.py --config-file config.yaml
 | **SPIN** | `oxrl/algs/spin.py` | Self-Play Improvement — DPO where rejected samples are the model's own prior outputs. |
 | **IPO** | `oxrl/algs/ipo.py` | Identity Preference Optimization — Squared-loss variant of DPO for improved stability. |
 | **SimPO** | `oxrl/algs/simpo.py` | Simple Preference Optimization — Reference-free, length-normalized preference alignment. |
+| **CPO** | `oxrl/algs/cpo.py` | Contrastive Preference Optimization — Reference-free DPO + behavioral cloning regularizer (ICML 2024). |
+| **AlphaPO** | `oxrl/algs/alphapo.py` | Generalizes SimPO with nonlinear reward shaping parameter alpha. |
+| **R-DPO** | `oxrl/algs/rdpo.py` | Robust DPO — Length regularization to prevent length exploitation. |
+| **cDPO** | `oxrl/algs/cdpo.py` | Conservative DPO — Label smoothing for noisy preference data. |
+| **SPO** | `oxrl/algs/spo.py` | Self Preference Optimization — SiLU-based bounded loss (EMNLP 2025). |
+| **DPNLL** | `oxrl/algs/dpnll.py` | DPO + NLL — Adds NLL on chosen to prevent chosen probability collapse. |
+| **MinorDPO** | `oxrl/algs/minor_dpo.py` | Clamped reject penalty — stops penalizing once pi_l < pi_ref_l. |
+| **C2DPO** | `oxrl/algs/c2dpo.py` | Constrained Controlled DPO — Quadratic penalty constraining deviation from reference. |
+| **AlphaDPO** | `oxrl/algs/alpha_dpo.py` | Alpha-divergence DPO — Generalizes KL to alpha-divergence. |
+| **AOT** | `oxrl/algs/aot.py` | Alignment via Optimal Transport — Wasserstein-based preference alignment. |
+| **APO** | `oxrl/algs/apo.py` | Anchored Preference Optimization — Anchored to reference with adaptive margin. |
+| **BCO** | `oxrl/algs/bco.py` | Binary Classifier Optimization — Trains binary classifier on preference pairs. |
+| **BetaDPO** | `oxrl/algs/betadpo.py` | Dynamic Beta DPO — Adaptive beta scheduling (NeurIPS 2024). |
+| **BPO** | `oxrl/algs/bpo.py` | Balanced Preference Optimization — Balances chosen/rejected gradients. |
+| **CalDPO** | `oxrl/algs/caldpo.py` | Calibrated DPO — Calibration-aware preference learning (NeurIPS 2024). |
+| **ChiPO** | `oxrl/algs/chipo.py` | Chi-squared Preference Optimization — Chi-squared divergence variant. |
+| **CPOSimPO** | `oxrl/algs/cposimpo.py` | CPO + SimPO hybrid — Reference-free with length normalization. |
+| **DiscoPOP** | `oxrl/algs/discopop.py` | Discovery of Optimal PO — Learns optimal loss function. |
+| **DPOP** | `oxrl/algs/dpop.py` | DPO-Positive — Prevents chosen probability decrease. |
+| **DPOShift** | `oxrl/algs/dposhift.py` | DPO with shifted baseline for improved stability. |
+| **DRDPO** | `oxrl/algs/drdpo.py` | Distributionally Robust DPO — Minimax formulation over uncertainty set. |
+| **EXO** | `oxrl/algs/exo.py` | Efficient Exact Optimization — Closed-form preference optimization. |
+| **FDPO** | `oxrl/algs/fdpo.py` | Filtered DPO — Filters pairs by quality margin before training. |
+| **FocalPO** | `oxrl/algs/focalpo.py` | Focal Preference Optimization — Focal loss weighting for hard examples. |
+| **GPO** | `oxrl/algs/gpo.py` | Generalized Preference Optimization — Parameterized loss family. |
+| **HDPO** | `oxrl/algs/hdpo.py` | Hybrid DPO — Combines multiple DPO objectives. |
+| **Hinge** | `oxrl/algs/hinge.py` | Hinge loss preference optimization — SVM-style margin loss. |
+| **NCA** | `oxrl/algs/nca.py` | Noise Contrastive Alignment — InfoNCE-based preference learning. |
+| **ODPO** | `oxrl/algs/odpo.py` | Offset DPO — Adds learned offset to preference margin. |
+| **RobustDPO** | `oxrl/algs/robust_dpo.py` | Robust DPO — Outlier-resistant with Huber-style loss. |
+| **SamPO** | `oxrl/algs/sampo.py` | Sample-weighted Preference Optimization — Importance-weighted pairs. |
+| **SPPO** | `oxrl/algs/sppo.py` | Self-Play Preference Optimization — Iterative self-play alignment. |
+| **WPO** | `oxrl/algs/wpo.py` | Weighted Preference Optimization — Quality-weighted preference pairs. |
 
 ## Reward Functions
 
@@ -211,7 +248,7 @@ oxRL/
 ├── oxrl/                   # Core Framework Package
 │   ├── trainer.py          # High-level Trainer API
 │   ├── rewards/            # Verifiable reasoning and coding rewards (math, code, etc.)
-│   ├── algs/               # 18 algorithm implementations (see tables above)
+│   ├── algs/               # 51 algorithm implementations (see tables above)
 │   ├── swarm/              # Autonomous model onboarding (Scout, Bugfixer)
 │   ├── preprocessing/      # Reasoning (OpenR1), Multimodal (Vision/Audio) preprocessors
 │   ├── rollouts/           # vLLM inference with structured prompt support
