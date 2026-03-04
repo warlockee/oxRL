@@ -43,8 +43,15 @@ from oxrl.algs.minor_dpo import MinorDPO
 from oxrl.algs.c2dpo import C2DPO
 from oxrl.algs.alpha_dpo import AlphaDPO as AlphaDPOMethod
 from oxrl.algs.bpo import BPO
-from oxrl.algs.grpo import GRPO
-from oxrl.algs.ppo import PPO
+
+# RL algorithms require ray/vllm — import lazily to avoid hard dependency
+def _lazy_import_grpo():
+    from oxrl.algs.grpo import GRPO
+    return GRPO
+
+def _lazy_import_ppo():
+    from oxrl.algs.ppo import PPO
+    return PPO
 
 __all__ = [
     "SFT", "DPO", "ORPO", "KTO",
@@ -53,5 +60,5 @@ __all__ = [
     "BetaDPO", "CalDPO", "SPPO", "AOT", "APO", "NCA", "Hinge",
     "RobustDPO", "EXO", "DiscoPOP", "BCO", "ODPO", "DPOP", "FocalPO",
     "GPO", "WPO", "FDPO", "HDPO", "DPOShift", "CPOSimPO", "SamPO",
-    "DrDPO", "ChiPO", "SPO", "DPNLL", "MinorDPO", "C2DPO", "AlphaDPOMethod", "BPO", "GRPO", "PPO",
+    "DrDPO", "ChiPO", "SPO", "DPNLL", "MinorDPO", "C2DPO", "AlphaDPOMethod", "BPO",
 ]
