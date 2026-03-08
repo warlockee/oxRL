@@ -71,6 +71,46 @@ def fix_lora_checkpoint_files(output_dir: str, lora_alpha: float, lora_r: int) -
             torch.save(sd, ckpt_path)
 
 
+def cleanup_old_checkpoints(
+    checkpoint_dir: str, experiment_id: str, keep_last_n: int,
+    exclude_tags: list[str] | None = None,
+) -> None:
+    """Delete old checkpoint directories, keeping only the last N.
+
+    Args:
+        checkpoint_dir: Base checkpoint directory.
+        experiment_id: Experiment ID (subdirectory name).
+        keep_last_n: Number of most recent checkpoints to keep.
+        exclude_tags: Directory names to never delete (e.g., ["best"]).
+    """
+    import re
+    import shutil
+
+    experiment_dir = os.path.join(checkpoint_dir, experiment_id)
+    if not os.path.isdir(experiment_dir):
+        return
+
+    exclude = set(exclude_tags or [])
+
+    # Find all iter* checkpoint directories with their epoch number
+    iter_dirs = []
+    for name in os.listdir(experiment_dir):
+        if name in exclude:
+            continue
+        full_path = os.path.join(experiment_dir, name)
+        if os.path.isdir(full_path) and name.startswith("iter"):
+            match = re.match(r"iter(\d+)", name)
+            if match:
+                iter_dirs.append((int(match.group(1)), full_path))
+
+    # Sort by epoch number ascending, remove the oldest
+    iter_dirs.sort(key=lambda x: x[0])
+    to_remove = iter_dirs[:-keep_last_n] if keep_last_n > 0 else iter_dirs
+
+    for _, path in to_remove:
+        shutil.rmtree(path, ignore_errors=True)
+
+
 def get_base_model_config(policy_engine):
     """Extract the base HF model config, unwrapping PEFT/DeepSpeed wrappers."""
     model_to_save = policy_engine.module

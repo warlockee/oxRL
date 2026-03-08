@@ -5,6 +5,8 @@ import os
 import torch
 import ray
 
+from oxrl.utils.ray_utils import ray_get_with_timeout
+
 
 def save_and_refresh(
     training_engine_runners,
@@ -16,6 +18,7 @@ def save_and_refresh(
     rank,
     logger,
     epoch,
+    timeout_sec=0,
 ):
     """Save checkpoint and refresh rollout engines.
 
@@ -25,7 +28,9 @@ def save_and_refresh(
     # 1. Gather state dict in memory (all ranks participate — collective op)
     try:
         gather_futures = [engine.gather_state_dict.remote() for engine in training_engine_runners]
-        gather_results = ray.get(gather_futures)
+        gather_results = ray_get_with_timeout(
+            gather_futures, timeout_sec=timeout_sec, description="gather_state_dict"
+        )
         state_dict = next((r for r in gather_results if r is not None), None)
     except Exception as e:
         logger.warning(f"[Epoch {epoch+1}] gather_state_dict failed ({e}), falling back to disk-based flow")
@@ -54,7 +59,10 @@ def save_and_refresh(
             eng.refresh_model_from_state_dict.remote(state_dict_ref, config_dict, policy_version)
             for eng in rollout_engines
         ]
-        ray.get(save_futures + refresh_futures)
+        ray_get_with_timeout(
+            save_futures + refresh_futures, timeout_sec=timeout_sec,
+            description="save_checkpoint + refresh_model"
+        )
 
         if rank == 0 and value_head_sd is not None:
             torch.save(value_head_sd, os.path.join(model_path, "value_head.pt"))
@@ -69,7 +77,7 @@ def save_and_refresh(
             engine.save_checkpoint.remote(output_dir=model_path, tag=tag)
             for engine in training_engine_runners
         ]
-        ray.get(save_futures)
+        ray_get_with_timeout(save_futures, timeout_sec=timeout_sec, description="save_checkpoint (fallback)")
 
         if rank == 0:
             os.sync()
@@ -77,6 +85,6 @@ def save_and_refresh(
         refresh_futures = [
             eng.refresh_model.remote(model_path, policy_version) for eng in rollout_engines
         ]
-        ray.get(refresh_futures)
+        ray_get_with_timeout(refresh_futures, timeout_sec=timeout_sec, description="refresh_model (fallback)")
 
     logger.info(f"[Epoch {epoch+1}] Checkpoint saved and rollout engines refreshed")

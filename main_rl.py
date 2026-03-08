@@ -5,6 +5,7 @@ Thin entry point that wires together setup, rollout, training, and checkpoint ph
 Each phase lives in its own module under oxrl/setup/ and oxrl/loops/.
 """
 import os
+import re
 import argparse
 import importlib
 import time
@@ -36,6 +37,25 @@ def main(config_file, experiment_id, log_level="INFO"):
     set_random_seeds(seed=config.run.seed)
     tracker = setup_tracker(config=config, rank=rank)
     logger.info(f"Config loaded. experiment_id: {config.run.experiment_id}")
+
+    # Resume from checkpoint: override model path so engines load from checkpoint
+    start_epoch = 0
+    start_policy_version = 0
+    if config.run.resume_from:
+        resume_path = config.run.resume_from
+        if not os.path.exists(resume_path):
+            raise FileNotFoundError(f"Resume checkpoint not found: {resume_path}")
+        tag = os.path.basename(resume_path)
+        match = re.match(r"iter(\d+)_v(\d+)", tag)
+        if match:
+            start_epoch = int(match.group(1))
+            start_policy_version = int(match.group(2))
+        else:
+            match = re.match(r"iter(\d+)", tag)
+            if match:
+                start_epoch = int(match.group(1))
+        config.model.name = resume_path
+        logger.info(f"Resuming from epoch {start_epoch}, policy v{start_policy_version}, path={resume_path}")
 
     training_gpus = config.run.training_gpus
     rollout_gpus = config.run.rollout_gpus
@@ -89,91 +109,145 @@ def main(config_file, experiment_id, log_level="INFO"):
     replay_buffer = ReplayBuffer(pad_token_id=tokenizer.pad_token_id, max_seq_len=config.data.max_seq_len)
 
     # 7. Training loop
-    policy_version = 0
+    policy_version = start_policy_version
     number_of_epochs = config.train.total_number_of_epochs
     number_of_training_steps_per_epoch = config.train.train_steps_per_epoch
-    global_step = 0
+    global_step = start_epoch * number_of_training_steps_per_epoch
+    best_reward = float('-inf')
+    timeout_sec = config.run.ray_task_timeout_sec
 
     logger.info("=" * 50)
     logger.info(f"Starting training: {number_of_epochs} epochs, {number_of_training_steps_per_epoch} steps/epoch")
     logger.info(f"Training GPUs: {training_gpus}, Rollout GPUs: {rollout_gpus}")
+    if start_epoch > 0:
+        logger.info(f"Resuming from epoch {start_epoch}, global_step {global_step}")
     logger.info("=" * 50)
 
-    for epoch in range(number_of_epochs):
-        epoch_start_time = time.time()
-        logger.info(f"[Epoch {epoch+1}/{number_of_epochs}] Starting rollout generation...")
+    for epoch in range(start_epoch, number_of_epochs):
+        epoch_retries = 0
+        while True:
+          try:
+            epoch_start_time = time.time()
+            logger.info(f"[Epoch {epoch+1}/{number_of_epochs}] Starting rollout generation...")
 
-        # Phase 1: Rollout
-        rollout_stats = collect_rollouts(
-            rollout_dataloader=rollout_dataloader,
-            num_rollout_engines=num_rollout_engines,
-            rollout_engines=rollout_engines,
-            epoch=epoch, policy_version=policy_version,
-            replay_buffer=replay_buffer, ray_agent=ray,
-        )
-        logger.info(
-            f"[Epoch {epoch+1}] Rollout complete: {rollout_stats['total_samples_generated']} samples, "
-            f"avg_reward={rollout_stats['avg_reward']:.4f}, time={rollout_stats['rollout_time']:.2f}s"
-        )
+            # Phase 1: Rollout
+            rollout_stats = collect_rollouts(
+                rollout_dataloader=rollout_dataloader,
+                num_rollout_engines=num_rollout_engines,
+                rollout_engines=rollout_engines,
+                epoch=epoch, policy_version=policy_version,
+                replay_buffer=replay_buffer, ray_agent=ray,
+                timeout_sec=timeout_sec,
+            )
+            logger.info(
+                f"[Epoch {epoch+1}] Rollout complete: {rollout_stats['total_samples_generated']} samples, "
+                f"avg_reward={rollout_stats['avg_reward']:.4f}, time={rollout_stats['rollout_time']:.2f}s"
+            )
 
-        if len(replay_buffer) <= 1:
-            raise ValueError("Replay buffer is empty")
+            if len(replay_buffer) <= 1:
+                raise ValueError("Replay buffer is empty")
 
-        # Phase 2: Training
-        logger.info(f"[Epoch {epoch+1}] Starting training on {len(replay_buffer)} replay buffer samples...")
-        train_start_time = time.time()
+            # Phase 2: Training
+            logger.info(f"[Epoch {epoch+1}] Starting training on {len(replay_buffer)} replay buffer samples...")
+            train_start_time = time.time()
 
-        epoch_metrics, global_step = run_training_steps(
-            training_engine_runners=training_engine_runners,
-            replay_buffer=replay_buffer,
-            train_batch_size_per_gpu=config.train.train_batch_size_per_gpu,
-            number_of_training_steps=number_of_training_steps_per_epoch,
-            epoch=epoch, global_step=global_step,
-            logger=logger, rank=rank, log_metrics_fn=log_metrics,
-        )
+            epoch_metrics, global_step = run_training_steps(
+                training_engine_runners=training_engine_runners,
+                replay_buffer=replay_buffer,
+                train_batch_size_per_gpu=config.train.train_batch_size_per_gpu,
+                number_of_training_steps=number_of_training_steps_per_epoch,
+                epoch=epoch, global_step=global_step,
+                logger=logger, rank=rank, log_metrics_fn=log_metrics,
+                timeout_sec=timeout_sec,
+            )
 
-        policy_version += 1
-        replay_buffer.reset()
+            policy_version += 1
+            replay_buffer.reset()
 
-        train_time = time.time() - train_start_time
-        epoch_time = time.time() - epoch_start_time
-        epoch_avg_loss = np.mean(epoch_metrics["loss_total"])
+            train_time = time.time() - train_start_time
+            epoch_time = time.time() - epoch_start_time
+            epoch_avg_loss = np.mean(epoch_metrics["loss_total"])
 
-        logger.info(
-            f"[Epoch {epoch+1}] Training complete: time={train_time:.2f}s, avg_loss={epoch_avg_loss:.4f}"
-        )
+            logger.info(
+                f"[Epoch {epoch+1}] Training complete: time={train_time:.2f}s, avg_loss={epoch_avg_loss:.4f}"
+            )
 
-        # Log epoch metrics (NoOpTracker handles non-rank-0)
-        log_metrics({
-            "epoch/avg_loss": epoch_avg_loss,
-            "epoch/avg_kl_old": np.mean(epoch_metrics["kl_old"]),
-            "epoch/avg_kl_ref": np.mean(epoch_metrics["kl_ref"]),
-            "epoch/avg_clipfrac": np.mean(epoch_metrics["clipfrac"]),
-            "epoch/avg_reward": rollout_stats["avg_reward"],
-            "epoch/avg_response_len": rollout_stats["avg_response_len"],
-            "epoch/total_samples": rollout_stats["total_samples_generated"],
-            "epoch/rollout_time_sec": rollout_stats["rollout_time"],
-            "epoch/train_time_sec": train_time,
-            "epoch/total_time_sec": epoch_time,
-            **get_gpu_memory_metrics(),
-        }, step=epoch + 1)
+            # Log epoch metrics (NoOpTracker handles non-rank-0)
+            log_metrics({
+                "epoch/avg_loss": epoch_avg_loss,
+                "epoch/avg_kl_old": np.mean(epoch_metrics["kl_old"]),
+                "epoch/avg_kl_ref": np.mean(epoch_metrics["kl_ref"]),
+                "epoch/avg_clipfrac": np.mean(epoch_metrics["clipfrac"]),
+                "epoch/avg_reward": rollout_stats["avg_reward"],
+                "epoch/avg_response_len": rollout_stats["avg_response_len"],
+                "epoch/total_samples": rollout_stats["total_samples_generated"],
+                "epoch/rollout_time_sec": rollout_stats["rollout_time"],
+                "epoch/train_time_sec": train_time,
+                "epoch/total_time_sec": epoch_time,
+                **get_gpu_memory_metrics(),
+            }, step=epoch + 1)
 
-        # Phase 3: Checkpoint + Refresh
-        tag = f"iter{epoch+1:06d}_v{policy_version:06d}"
-        model_path = get_experiment_dir_name(
-            output_dir=config.run.checkpoint_dir, tag=tag, experiment_id=config.run.experiment_id,
-        )
-        logger.info(f"[Epoch {epoch+1}] Saving checkpoint to {model_path}")
+            # Best-model checkpoint (based on average reward)
+            if config.run.save_best_checkpoint and rollout_stats["avg_reward"] > best_reward:
+                best_reward = rollout_stats["avg_reward"]
+                best_path = get_experiment_dir_name(
+                    output_dir=config.run.checkpoint_dir, tag="best",
+                    experiment_id=config.run.experiment_id,
+                )
+                logger.info(f"[Epoch {epoch+1}] New best reward: {best_reward:.4f}. Saving to {best_path}")
+                save_and_refresh(
+                    training_engine_runners=training_engine_runners,
+                    rollout_engines=[],  # Don't refresh rollout engines for best checkpoint
+                    model_path=best_path, tag="best", policy_version=policy_version,
+                    tokenizer=tokenizer, rank=rank, logger=logger, epoch=epoch,
+                    timeout_sec=timeout_sec,
+                )
 
-        save_and_refresh(
-            training_engine_runners=training_engine_runners,
-            rollout_engines=rollout_engines,
-            model_path=model_path, tag=tag, policy_version=policy_version,
-            tokenizer=tokenizer, rank=rank, logger=logger, epoch=epoch,
-        )
+            # Phase 3: Periodic Checkpoint + Refresh
+            is_checkpoint_epoch = (
+                (epoch + 1) % config.run.checkpoint_every_n_epochs == 0
+                or (epoch + 1) == number_of_epochs
+            )
+            if is_checkpoint_epoch:
+                tag = f"iter{epoch+1:06d}_v{policy_version:06d}"
+                model_path = get_experiment_dir_name(
+                    output_dir=config.run.checkpoint_dir, tag=tag, experiment_id=config.run.experiment_id,
+                )
+                logger.info(f"[Epoch {epoch+1}] Saving checkpoint to {model_path}")
 
-        logger.info(f"[Epoch {epoch+1}] Complete! Total epoch time: {epoch_time:.2f}s")
-        logger.info("=" * 50)
+                save_and_refresh(
+                    training_engine_runners=training_engine_runners,
+                    rollout_engines=rollout_engines,
+                    model_path=model_path, tag=tag, policy_version=policy_version,
+                    tokenizer=tokenizer, rank=rank, logger=logger, epoch=epoch,
+                    timeout_sec=timeout_sec,
+                )
+
+                # Cleanup old checkpoints
+                if config.run.keep_last_n_checkpoints is not None and rank == 0:
+                    from oxrl.tools.checkpoint import cleanup_old_checkpoints
+                    cleanup_old_checkpoints(
+                        checkpoint_dir=config.run.checkpoint_dir,
+                        experiment_id=config.run.experiment_id,
+                        keep_last_n=config.run.keep_last_n_checkpoints,
+                        exclude_tags=["best"],
+                    )
+
+            logger.info(f"[Epoch {epoch+1}] Complete! Total epoch time: {epoch_time:.2f}s")
+            logger.info("=" * 50)
+            break  # Epoch succeeded — exit retry loop
+
+          except Exception as e:
+            epoch_retries += 1
+            if epoch_retries > config.run.max_epoch_retries:
+                logger.error(f"[Epoch {epoch+1}] Failed after {epoch_retries} attempts: {e}")
+                raise
+            logger.warning(
+                f"[Epoch {epoch+1}] Failed (attempt {epoch_retries}/{config.run.max_epoch_retries}): "
+                f"{e}. Retrying..."
+            )
+            replay_buffer.reset()
+            time.sleep(5)
 
     if rank == 0:
         end_run()

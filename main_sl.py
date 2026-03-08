@@ -1,4 +1,5 @@
 import os
+import re
 import random
 import numpy as np
 import argparse
@@ -267,6 +268,23 @@ if __name__ == "__main__":
     if config.model.gradient_checkpointing:
         logger.info("Gradient checkpointing enabled")
         model_engine.gradient_checkpointing_enable()
+
+    ########
+    # 5.1 Resume from checkpoint (if specified)
+    ########
+    start_epoch = 0
+    if config.run.resume_from:
+        logger.info(f"Resuming from checkpoint: {config.run.resume_from}")
+        load_path, _ = model_engine.load_checkpoint(config.run.resume_from)
+        if load_path is None:
+            raise FileNotFoundError(f"No DeepSpeed checkpoint found at {config.run.resume_from}")
+        tag = os.path.basename(config.run.resume_from)
+        match = re.match(r"iter(\d+)", tag)
+        if match:
+            start_epoch = int(match.group(1))
+        logger.info(f"Resumed from {load_path}, starting at epoch {start_epoch}")
+        if torch.distributed.is_initialized():
+            torch.distributed.barrier()
 
     ########
     # 6. Build env or data loader
@@ -618,22 +636,27 @@ if __name__ == "__main__":
         f"global_batch_size={config.train.train_batch_size_per_gpu * config.train.gradient_accumulation_steps * world_size}"
     )
     logger.info("=" * 50)
-    global_step = 0
+    global_step = start_epoch * optimizer_steps_per_epoch
+    best_val_loss = float('inf')
+    total_epochs = config.train.total_number_of_epochs
     # Sync before starting
     # Ensure all nodes have loaded the model and data before anyone starts iterating
     if torch.distributed.is_initialized():
         torch.distributed.barrier()
 
-    for epoch in range(config.train.total_number_of_epochs):
-        epoch_start_time = time.time()
-        train_sampler.set_epoch(epoch)
-        # Ensure gradients are zeroed at the start of epoch to prevent any bleeding from previous epoch
-        # if accumulation steps were not perfectly aligned (though we enforce alignment above).
-        model_engine.optimizer.zero_grad()
+    for epoch in range(start_epoch, total_epochs):
+        epoch_retries = 0
+        while True:
+          try:
+            epoch_start_time = time.time()
+            train_sampler.set_epoch(epoch)
+            # Ensure gradients are zeroed at the start of epoch to prevent any bleeding from previous epoch
+            # if accumulation steps were not perfectly aligned (though we enforce alignment above).
+            model_engine.optimizer.zero_grad()
 
-        ########
-        # 8.1 Training loop
-        ########
+            ########
+            # 8.1 Training loop
+            ########
         if rank == 0:
             progress_bar = tqdm(train_dataloader, desc=f"Epoch {epoch+1}/{config.train.total_number_of_epochs}", disable=(rank != 0))
         else:
@@ -704,30 +727,73 @@ if __name__ == "__main__":
             torch.distributed.all_reduce(local_sum, op=torch.distributed.ReduceOp.SUM)
             torch.distributed.all_reduce(local_count, op=torch.distributed.ReduceOp.SUM)
 
-        global_avg_loss = (local_sum / torch.clamp(local_count, min=1.0)).item()
-        if rank == 0:
-            print(f"Epoch {epoch+1}, Validation Loss: {global_avg_loss}")
-            log_metrics({
-                "val/loss": global_avg_loss,
-            }, step=global_step)
+            global_avg_loss = (local_sum / torch.clamp(local_count, min=1.0)).item()
+            if rank == 0:
+                print(f"Epoch {epoch+1}, Validation Loss: {global_avg_loss}")
+                log_metrics({
+                    "val/loss": global_avg_loss,
+                }, step=global_step)
 
-        ########
-        # 8.3 Save checkpoint
-        ########
-        # Sync before saving to ensure no one is still writing
-        if torch.distributed.is_initialized():
-            torch.distributed.barrier()
+            ########
+            # 8.3 Best-model checkpoint
+            ########
+            if config.run.save_best_checkpoint and global_avg_loss < best_val_loss:
+                best_val_loss = global_avg_loss
+                best_path = get_experiment_dir_name(
+                    output_dir=config.run.checkpoint_dir, tag="best",
+                    experiment_id=config.run.experiment_id,
+                )
+                logger.info(f"[Epoch {epoch+1}] New best val loss: {global_avg_loss:.6f}. Saving to {best_path}")
+                if torch.distributed.is_initialized():
+                    torch.distributed.barrier()
+                model_engine.save_checkpoint(best_path)
+                if torch.distributed.is_initialized():
+                    torch.distributed.barrier()
 
-        tag = f"iter{epoch+1:06d}"
-        model_path = get_experiment_dir_name(output_dir=config.run.checkpoint_dir, tag=tag, experiment_id=config.run.experiment_id)
-        logger.info(f"[Epoch {epoch+1}] Saving checkpoint to {model_path}")
+            ########
+            # 8.4 Save periodic checkpoint
+            ########
+            is_checkpoint_epoch = (
+                (epoch + 1) % config.run.checkpoint_every_n_epochs == 0
+                or (epoch + 1) == total_epochs
+            )
+            if is_checkpoint_epoch:
+                # Sync before saving to ensure no one is still writing
+                if torch.distributed.is_initialized():
+                    torch.distributed.barrier()
 
-        # DeepSpeed handles the collective saving internally so we don't need to worry about different ranks.
-        model_engine.save_checkpoint(model_path)
+                tag = f"iter{epoch+1:06d}"
+                model_path = get_experiment_dir_name(output_dir=config.run.checkpoint_dir, tag=tag, experiment_id=config.run.experiment_id)
+                logger.info(f"[Epoch {epoch+1}] Saving checkpoint to {model_path}")
 
-        # Wait for saving to complete on all ranks
-        if torch.distributed.is_initialized():
-            torch.distributed.barrier()
+                # DeepSpeed handles the collective saving internally
+                model_engine.save_checkpoint(model_path)
+
+                # Wait for saving to complete on all ranks
+                if torch.distributed.is_initialized():
+                    torch.distributed.barrier()
+
+                # Cleanup old checkpoints
+                if config.run.keep_last_n_checkpoints is not None and rank == 0:
+                    from oxrl.tools.checkpoint import cleanup_old_checkpoints
+                    cleanup_old_checkpoints(
+                        checkpoint_dir=config.run.checkpoint_dir,
+                        experiment_id=config.run.experiment_id,
+                        keep_last_n=config.run.keep_last_n_checkpoints,
+                        exclude_tags=["best"],
+                    )
+
+            break  # Epoch succeeded — exit retry loop
+
+          except Exception as e:
+            epoch_retries += 1
+            if epoch_retries > config.run.max_epoch_retries:
+                logger.error(f"[Epoch {epoch+1}] Failed after {epoch_retries} attempts: {e}")
+                raise
+            logger.warning(f"[Epoch {epoch+1}] Failed (attempt {epoch_retries}): {e}. Retrying...")
+            torch.cuda.empty_cache()
+            gc.collect()
+            time.sleep(5)
 
     logger.info("Training completed successfully!")
 

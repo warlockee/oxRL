@@ -61,6 +61,35 @@ class TestRun:
             r = Run(experiment_id="exp1", tracker=val)
             assert r.tracker == val
 
+    # ---- Reliability / fault-tolerance fields ----
+    def test_resume_from_default(self):
+        r = Run(experiment_id="exp1")
+        assert r.resume_from is None
+
+    def test_resume_from_custom(self):
+        r = Run(experiment_id="exp1", resume_from="/ckpts/iter000005")
+        assert r.resume_from == "/ckpts/iter000005"
+
+    def test_checkpoint_every_n_epochs_default(self):
+        r = Run(experiment_id="exp1")
+        assert r.checkpoint_every_n_epochs == 1
+
+    def test_keep_last_n_checkpoints_default(self):
+        r = Run(experiment_id="exp1")
+        assert r.keep_last_n_checkpoints is None
+
+    def test_save_best_checkpoint_default(self):
+        r = Run(experiment_id="exp1")
+        assert r.save_best_checkpoint is False
+
+    def test_ray_task_timeout_sec_default(self):
+        r = Run(experiment_id="exp1")
+        assert r.ray_task_timeout_sec == 1800
+
+    def test_max_epoch_retries_default(self):
+        r = Run(experiment_id="exp1")
+        assert r.max_epoch_retries == 0
+
 
 # ============================================================
 # Train model

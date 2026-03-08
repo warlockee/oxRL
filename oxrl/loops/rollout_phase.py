@@ -3,6 +3,8 @@ Rollout collection phase: generate samples from rollout engines.
 """
 import time
 
+from oxrl.utils.ray_utils import ray_get_with_timeout
+
 
 def collect_rollouts(
     rollout_dataloader,
@@ -12,6 +14,7 @@ def collect_rollouts(
     policy_version,
     replay_buffer,
     ray_agent,
+    timeout_sec=0,
 ):
     """Run rollout engines and collect samples into the replay buffer.
 
@@ -56,7 +59,9 @@ def collect_rollouts(
             )
 
         # 3. gather rollouts
-        rollout_lists = ray_agent.get(rollout_samples)
+        rollout_lists = ray_get_with_timeout(
+            rollout_samples, timeout_sec=timeout_sec, description="rollout generation"
+        )
 
         # 4. merge and collect stats
         rollout_merged = []

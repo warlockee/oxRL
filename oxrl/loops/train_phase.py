@@ -4,8 +4,9 @@ Training phase: run optimizer steps on replay buffer data.
 import time
 
 import numpy as np
-import ray
 from torch.utils.data import DataLoader
+
+from oxrl.utils.ray_utils import ray_get_with_timeout
 
 
 def run_training_steps(
@@ -18,6 +19,7 @@ def run_training_steps(
     logger,
     rank,
     log_metrics_fn,
+    timeout_sec=0,
 ):
     """Execute training steps for one epoch. Returns (epoch_metrics, new_global_step)."""
     # Create dataloader from replay buffer
@@ -64,7 +66,9 @@ def run_training_steps(
             assert len(shard) > 0, f"Engine {eid} has empty shard - this will cause DeepSpeed hang"
             train_futures.append(engine.train_step.remote(engine_id=eid, micro_batches=shard))
 
-        train_metrics = ray.get(train_futures)
+        train_metrics = ray_get_with_timeout(
+            train_futures, timeout_sec=timeout_sec, description="training step"
+        )
 
         step_elapsed = time.perf_counter() - step_start
 

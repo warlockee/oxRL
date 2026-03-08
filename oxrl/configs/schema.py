@@ -30,6 +30,14 @@ class Run(BaseModel):
     ray_master_port: int = 29500
     checkpoint_dir: str | None = None
 
+    # Reliability / fault-tolerance
+    resume_from: str | None = None              # Checkpoint path to resume from
+    checkpoint_every_n_epochs: int = 1          # Save every N epochs (1 = every epoch)
+    keep_last_n_checkpoints: int | None = None  # Delete older checkpoints (None = keep all)
+    save_best_checkpoint: bool = False          # Track best metric, save to best/ tag
+    ray_task_timeout_sec: int = 1800            # Timeout for ray.get() in seconds (0 = no timeout)
+    max_epoch_retries: int = 0                  # Retry failed epochs (0 = crash immediately)
+
 class Train(BaseModel):
     '''
         Everything related to training goes here like optimizer, scheduler, etc.
