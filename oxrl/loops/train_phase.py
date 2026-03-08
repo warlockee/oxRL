@@ -1,6 +1,8 @@
 """
 Training phase: run optimizer steps on replay buffer data.
 """
+import time
+
 import numpy as np
 import ray
 from torch.utils.data import DataLoader
@@ -15,7 +17,6 @@ def run_training_steps(
     global_step,
     logger,
     rank,
-    mlflow_run,
     log_metrics_fn,
 ):
     """Execute training steps for one epoch. Returns (epoch_metrics, new_global_step)."""
@@ -55,6 +56,8 @@ def run_training_steps(
     }
 
     for tidx in range(number_of_training_steps):
+        step_start = time.perf_counter()
+
         train_futures = []
         for eid, engine in enumerate(training_engine_runners):
             shard = train_batches_padded[eid::num_train_engines]
@@ -62,6 +65,8 @@ def run_training_steps(
             train_futures.append(engine.train_step.remote(engine_id=eid, micro_batches=shard))
 
         train_metrics = ray.get(train_futures)
+
+        step_elapsed = time.perf_counter() - step_start
 
         avg_loss = np.mean([m.get("loss_total", 0.0) for m in train_metrics])
         avg_loss_pi = np.mean([m.get("loss_pi", 0.0) for m in train_metrics])
@@ -86,17 +91,18 @@ def run_training_steps(
                 f"kl_ref={avg_kl_ref:.4f}, kl_old={avg_kl_old:.6f}, clipfrac={avg_clipfrac:.4f}"
             )
 
-        if rank == 0 and mlflow_run:
-            log_metrics_fn(
-                {
-                    "train/loss_total": avg_loss,
-                    "train/loss_pi": avg_loss_pi,
-                    "train/loss_ent": avg_loss_ent,
-                    "train/kl_ref": avg_kl_ref,
-                    "train/kl_old": avg_kl_old,
-                    "train/clipfrac": avg_clipfrac,
-                },
-                step=global_step,
-            )
+        # NoOpTracker handles non-rank-0 automatically
+        log_metrics_fn(
+            {
+                "train/loss_total": avg_loss,
+                "train/loss_pi": avg_loss_pi,
+                "train/loss_ent": avg_loss_ent,
+                "train/kl_ref": avg_kl_ref,
+                "train/kl_old": avg_kl_old,
+                "train/clipfrac": avg_clipfrac,
+                "train/step_time_sec": step_elapsed,
+            },
+            step=global_step,
+        )
 
     return epoch_metrics, global_step

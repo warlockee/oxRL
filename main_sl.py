@@ -17,7 +17,8 @@ from oxrl.datasets.prompt_response import PromptResponseDataset
 from oxrl.datasets.prompt_preference import PromptPreferenceDataset
 
 from oxrl.utils.utils import safe_string_to_torch_dtype, get_experiment_dir_name
-from oxrl.utils.logging import setup_logging, setup_mlflow, log_metrics, end_run
+from oxrl.utils.logging import setup_logging, setup_tracker, log_metrics, end_run
+from oxrl.utils.gpu_metrics import get_gpu_memory_metrics, compute_throughput, StepTimer
 from oxrl.utils.setup import set_random_seeds, get_distributed_info, load_tokenizer, load_model_and_ref
 from oxrl.algs.sft import SFT
 from oxrl.algs.dpo import DPO
@@ -241,8 +242,8 @@ if __name__ == "__main__":
                                  )
     set_random_seeds(seed=config.run.seed)
 
-    # Setup MLflow (only on rank 0)
-    mlflow_run = setup_mlflow(config=config, tracking_uri=config.run.tracking_uri, rank=rank)
+    # Setup experiment tracker (only rank 0 actually logs; others get NoOpTracker)
+    tracker = setup_tracker(config=config, rank=rank)
     logger.info(f"Config loaded. experiment_id: {config.run.experiment_id}")
 
     ########
@@ -651,7 +652,8 @@ if __name__ == "__main__":
             micro_batch = {k: v.to(model_engine.device) for k, v in micro_batch.items()}
 
             # Run one train step for micro-batch.
-            metric = alg.train_step(micro_batch)
+            with StepTimer() as step_timer:
+                metric = alg.train_step(micro_batch)
 
             # Only increment global_step when ds actually updates weights
             if model_engine.is_gradient_accumulation_boundary():
@@ -660,9 +662,16 @@ if __name__ == "__main__":
             # logging
             if rank == 0:
                 progress_bar.set_postfix(loss=metric['loss'])
-                if mlflow_run and model_engine.is_gradient_accumulation_boundary():
+                if model_engine.is_gradient_accumulation_boundary():
+                    tokens_in_batch = micro_batch["input_ids"].numel()
                     log_metrics({
                         "train/loss": metric['loss'],
+                        "perf/tokens_per_sec": compute_throughput(
+                            tokens_in_batch * config.train.gradient_accumulation_steps,
+                            step_timer.elapsed_sec * config.train.gradient_accumulation_steps,
+                        ),
+                        "perf/step_time_sec": step_timer.elapsed_sec,
+                        **get_gpu_memory_metrics(),
                     }, step=global_step)
 
         # Sync before validation to ensure consistent state
@@ -698,10 +707,9 @@ if __name__ == "__main__":
         global_avg_loss = (local_sum / torch.clamp(local_count, min=1.0)).item()
         if rank == 0:
             print(f"Epoch {epoch+1}, Validation Loss: {global_avg_loss}")
-            if mlflow_run:
-                log_metrics({
-                    "val/loss": global_avg_loss,
-                }, step=global_step)
+            log_metrics({
+                "val/loss": global_avg_loss,
+            }, step=global_step)
 
         ########
         # 8.3 Save checkpoint
@@ -723,6 +731,6 @@ if __name__ == "__main__":
 
     logger.info("Training completed successfully!")
 
-    # End MLflow run cleanly
-    if rank == 0 and mlflow_run:
+    # End tracking run cleanly
+    if rank == 0:
         end_run()

@@ -52,6 +52,15 @@ class TestRun:
         r = Run(experiment_id="exp1")
         assert r.checkpoint_dir is None
 
+    def test_tracker_default_mlflow(self):
+        r = Run(experiment_id="exp1")
+        assert r.tracker == "mlflow"
+
+    def test_tracker_custom_values(self):
+        for val in ["wandb", "tensorboard", "none"]:
+            r = Run(experiment_id="exp1", tracker=val)
+            assert r.tracker == val
+
 
 # ============================================================
 # Train model

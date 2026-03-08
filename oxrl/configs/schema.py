@@ -20,6 +20,7 @@ class Run(BaseModel):
     seed: int = 42
     project_name: str = "oxrl-exp"
     tracking_uri: str = ""
+    tracker: str = "mlflow"  # "mlflow", "wandb", "tensorboard", "none"
     method: str = None
 
     # RL-specific fields

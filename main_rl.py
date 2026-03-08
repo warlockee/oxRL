@@ -13,7 +13,8 @@ import ray
 
 import oxrl.configs.load as cfg
 from oxrl.utils.utils import get_experiment_dir_name
-from oxrl.utils.logging import setup_logging, setup_mlflow, log_metrics, end_run
+from oxrl.utils.logging import setup_logging, setup_tracker, log_metrics, end_run
+from oxrl.utils.gpu_metrics import get_gpu_memory_metrics
 from oxrl.utils.setup import set_random_seeds, get_rank_info, load_tokenizer
 from oxrl.rollouts.replay_buffer import ReplayBuffer
 
@@ -33,7 +34,7 @@ def main(config_file, experiment_id, log_level="INFO"):
 
     config = cfg.load_and_verify(method="rl", input_yaml=config_file, experiment_id=experiment_id)
     set_random_seeds(seed=config.run.seed)
-    mlflow_run = setup_mlflow(config=config, tracking_uri=config.run.tracking_uri, rank=rank)
+    tracker = setup_tracker(config=config, rank=rank)
     logger.info(f"Config loaded. experiment_id: {config.run.experiment_id}")
 
     training_gpus = config.run.training_gpus
@@ -128,7 +129,7 @@ def main(config_file, experiment_id, log_level="INFO"):
             train_batch_size_per_gpu=config.train.train_batch_size_per_gpu,
             number_of_training_steps=number_of_training_steps_per_epoch,
             epoch=epoch, global_step=global_step,
-            logger=logger, rank=rank, mlflow_run=mlflow_run, log_metrics_fn=log_metrics,
+            logger=logger, rank=rank, log_metrics_fn=log_metrics,
         )
 
         policy_version += 1
@@ -142,20 +143,20 @@ def main(config_file, experiment_id, log_level="INFO"):
             f"[Epoch {epoch+1}] Training complete: time={train_time:.2f}s, avg_loss={epoch_avg_loss:.4f}"
         )
 
-        # Log epoch metrics
-        if rank == 0 and mlflow_run:
-            log_metrics({
-                "epoch/avg_loss": epoch_avg_loss,
-                "epoch/avg_kl_old": np.mean(epoch_metrics["kl_old"]),
-                "epoch/avg_kl_ref": np.mean(epoch_metrics["kl_ref"]),
-                "epoch/avg_clipfrac": np.mean(epoch_metrics["clipfrac"]),
-                "epoch/avg_reward": rollout_stats["avg_reward"],
-                "epoch/avg_response_len": rollout_stats["avg_response_len"],
-                "epoch/total_samples": rollout_stats["total_samples_generated"],
-                "epoch/rollout_time_sec": rollout_stats["rollout_time"],
-                "epoch/train_time_sec": train_time,
-                "epoch/total_time_sec": epoch_time,
-            }, step=epoch + 1)
+        # Log epoch metrics (NoOpTracker handles non-rank-0)
+        log_metrics({
+            "epoch/avg_loss": epoch_avg_loss,
+            "epoch/avg_kl_old": np.mean(epoch_metrics["kl_old"]),
+            "epoch/avg_kl_ref": np.mean(epoch_metrics["kl_ref"]),
+            "epoch/avg_clipfrac": np.mean(epoch_metrics["clipfrac"]),
+            "epoch/avg_reward": rollout_stats["avg_reward"],
+            "epoch/avg_response_len": rollout_stats["avg_response_len"],
+            "epoch/total_samples": rollout_stats["total_samples_generated"],
+            "epoch/rollout_time_sec": rollout_stats["rollout_time"],
+            "epoch/train_time_sec": train_time,
+            "epoch/total_time_sec": epoch_time,
+            **get_gpu_memory_metrics(),
+        }, step=epoch + 1)
 
         # Phase 3: Checkpoint + Refresh
         tag = f"iter{epoch+1:06d}_v{policy_version:06d}"
@@ -174,7 +175,7 @@ def main(config_file, experiment_id, log_level="INFO"):
         logger.info(f"[Epoch {epoch+1}] Complete! Total epoch time: {epoch_time:.2f}s")
         logger.info("=" * 50)
 
-    if rank == 0 and mlflow_run:
+    if rank == 0:
         end_run()
 
     logger.info("Training completed successfully!")
