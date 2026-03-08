@@ -134,6 +134,56 @@ class ClampRewardShaper(RewardShaper):
 
 
 # ---------------------------------------------------------------------------
+# Vision / encoder adapters
+# ---------------------------------------------------------------------------
+
+class ZipformerVisionAdapter:
+    """Adapter for plugging a Zipformer encoder into the mm_kwargs pipeline.
+
+    Wraps a frozen Zipformer model and exposes the processor interface
+    that ``_prepare_mm_inputs`` expects (``feature_extractor`` method).
+
+    Usage::
+
+        adapter = ZipformerVisionAdapter(encoder, sample_rate=16000)
+        # Assign as processor so base class picks it up:
+        trainer.processor = adapter
+    """
+
+    def __init__(self, encoder, sample_rate: int = 16000):
+        self.encoder = encoder
+        self.sample_rate = sample_rate
+
+    def feature_extractor(self, raw_speech, sampling_rate, return_tensors="pt"):
+        """Match the HuggingFace FeatureExtractor interface.
+
+        Returns a dict of tensors that get merged into ``mm_kwargs``.
+        """
+        features = []
+        for waveform in raw_speech:
+            if isinstance(waveform, torch.Tensor):
+                features.append(waveform)
+            else:
+                import numpy as np
+                features.append(torch.from_numpy(np.asarray(waveform)).float())
+
+        max_len = max(f.shape[0] for f in features)
+        padded = torch.zeros(len(features), max_len)
+        lengths = torch.zeros(len(features), dtype=torch.long)
+        for i, f in enumerate(features):
+            padded[i, :f.shape[0]] = f
+            lengths[i] = f.shape[0]
+
+        with torch.no_grad():
+            audio_embeds = self.encoder(padded, lengths)
+
+        return {
+            "audio_features": audio_embeds,
+            "audio_feature_lengths": lengths,
+        }
+
+
+# ---------------------------------------------------------------------------
 # Module loader
 # ---------------------------------------------------------------------------
 

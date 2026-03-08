@@ -304,31 +304,113 @@ def compute_retnet_pg_loss(
 
 
 @register_algorithm("retnet_grpo")
-class RetNetGRPO:
-    """GRPO adapter for RetNet models.
+class RetNetAdapter:
+    """Demonstrates recurrent inference logic (retentive-style) without modifying PPO.
 
-    The main difference from vanilla GRPO is the forward pass: RetNet
-    uses ``retention_mask`` instead of ``attention_mask`` and accepts an
-    optional ``chunk_size`` for chunked retention.
+    RetNet replaces O(N^2) attention with O(N) recurrent retention.
+    During training we use the parallel (chunked) path for throughput;
+    during generation / rollout we use the recurrent path for O(1)
+    per-step cost.
 
     In a real implementation you would subclass ``oxrl.algs.grpo.GRPO``
-    and override ``policy_forward`` / ``ref_forward``.  This stub shows
-    what the override looks like.
+    and override ``policy_forward`` / ``ref_forward``.
     """
 
-    # Sketch of the key override:
-    #
-    #   def policy_forward(self, input_ids, att_mask, pos_ids, mm_kwargs=None):
-    #       """RetNet forward — translate attention_mask to retention_mask."""
-    #       retention_mask = att_mask.float()  # RetNet uses float mask
-    #       outputs = self.policy_engine(
-    #           input_ids=input_ids,
-    #           retention_mask=retention_mask,
-    #           chunk_size=self.retention_chunk_size,
-    #           use_cache=self.use_cache,
-    #       )
-    #       return outputs.logits
-    pass
+    def forward_recurrent(self, input_ids, state=None):
+        """Single-step recurrent forward — used during rollout / generation.
+
+        In a real RetNet this replaces the O(N^2) attention with a
+        fixed-size state that is updated per token.
+
+        Args:
+            input_ids: (B, 1) — single token per step.
+            state: Previous recurrent state dict, or None for the first token.
+
+        Returns:
+            logits: (B, 1, V)
+            new_state: Updated recurrent state dict.
+        """
+        if state is None:
+            state = self._init_recurrent_state(input_ids)
+
+        # Retention: S_n = gamma * S_{n-1} + k_n^T v_n
+        # Output:    o_n = q_n S_n
+        outputs = self.policy_engine(
+            input_ids=input_ids,
+            recurrent_state=state,
+            forward_mode="recurrent",
+            use_cache=False,
+        )
+        return outputs.logits, outputs.recurrent_state
+
+    def forward_parallel(self, input_ids, att_mask, pos_ids, mm_kwargs=None):
+        """Chunked parallel forward — used during the training step.
+
+        Processes the full sequence in chunks for O(N) memory while
+        still benefiting from GPU parallelism within each chunk.
+        """
+        retention_mask = att_mask.float()  # RetNet uses float mask, not bool
+        forward_kwargs = dict(
+            input_ids=input_ids,
+            retention_mask=retention_mask,
+            forward_mode="chunkwise",
+            chunk_size=getattr(self, "retention_chunk_size", 512),
+            use_cache=False,
+        )
+        if mm_kwargs:
+            forward_kwargs.update(mm_kwargs)
+
+        outputs = self.policy_engine(**forward_kwargs)
+        return outputs.logits
+
+    def _init_recurrent_state(self, input_ids):
+        """Create zero-initialised retention state."""
+        B = input_ids.shape[0]
+        device = input_ids.device
+        # One state matrix per layer per head: (B, heads, d_k, d_v)
+        n_layers = getattr(self.policy_engine.module.config, "num_hidden_layers", 24)
+        n_heads = getattr(self.policy_engine.module.config, "num_attention_heads", 16)
+        d_k = d_v = getattr(self.policy_engine.module.config, "hidden_size", 2048) // n_heads
+        return {
+            "retention": [
+                torch.zeros(B, n_heads, d_k, d_v, device=device)
+                for _ in range(n_layers)
+            ]
+        }
+
+    # Our PPO/GRPO loops can call this through a generic 'forward' hook —
+    # it dispatches to parallel (training) or recurrent (generation)
+    # based on sequence length, so the algorithm code stays unchanged.
+    def forward(self, input_ids, att_mask, pos_ids, mm_kwargs=None, state=None):
+        if input_ids.shape[1] == 1 and state is not None:
+            return self.forward_recurrent(input_ids, state=state)
+        return self.forward_parallel(input_ids, att_mask, pos_ids, mm_kwargs=mm_kwargs)
+
+
+class VJEPA2RewardAdapter:
+    """Demonstrates reward scoring for non-generative encoders (V-JEPA2)."""
+
+    def __init__(self, text_encoder=None, temperature: float = 0.07):
+        self.text_encoder = text_encoder  # e.g. a CLIP text encoder
+        self.temperature = temperature
+
+    def compute_reward(self, video_tensor: torch.Tensor, text_query: str):
+        # JEPA-style latents comparison
+        return torch.tensor([0.95])  # Mock similarity score
+
+    def __call__(self, prompt_ids, response_ids, finish_reason, metadata=None):
+        """oxRL reward function interface — delegates to compute_reward."""
+        r = torch.zeros(len(response_ids), dtype=torch.float32)
+        if metadata is None:
+            return r, False
+
+        video_embed = metadata.get("video_embeds")
+        response_text = metadata.get("response_text", "")
+        if video_embed is None or not response_text:
+            return r, False
+
+        r[-1] = self.compute_reward(video_embed, response_text).item()
+        return r, False
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -531,6 +613,122 @@ class CurriculumRewardShaper(RewardShaper):
             t = self.current_epoch / max(self.warmup_epochs, 1)
             scale = self.warmup_scale + (1.0 - self.warmup_scale) * t
         return reward_tensor * scale, is_per_token
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Proof-of-concept: Downsample for multiple scales without framework changes
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Many vision models benefit from multi-scale features (e.g. InternVL2's
+# dynamic tiling, Qwen2-VL's multi-resolution patches).  Because mm_kwargs
+# is just a dict merged into forward_kwargs, you can pack *any* extra
+# tensors — including downsampled copies at different scales — without
+# touching the training loop, loss functions, or algorithm base classes.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class MultiScaleImageProcessor:
+    """Processor that produces pixel_values at multiple resolutions.
+
+    Wraps an existing HF image_processor and adds downsampled scales.
+    The base-resolution tensor goes into ``pixel_values`` (as usual),
+    and each additional scale goes into ``pixel_values_<size>``.
+
+    The model's forward method receives all of them via **forward_kwargs.
+    Models that don't expect the extra keys simply ignore them (HF models
+    use **kwargs), so this is safe to use even with single-scale models.
+
+    Usage::
+
+        processor = AutoProcessor.from_pretrained("Qwen/Qwen2-VL-7B")
+        processor.image_processor = MultiScaleImageProcessor(
+            processor.image_processor, scales=[384, 192, 96]
+        )
+        # Now _prepare_mm_inputs returns pixel_values, pixel_values_s192,
+        # pixel_values_s96 — all routed through mm_kwargs automatically.
+    """
+
+    def __init__(self, inner_processor, scales: list[int] = None):
+        """
+        Args:
+            inner_processor: The original HF image processor.
+            scales: List of additional spatial sizes to produce.
+                    Each must be smaller than the inner processor's
+                    native resolution. Default: [192, 96].
+        """
+        self.inner = inner_processor
+        self.scales = scales or [192, 96]
+
+    def __call__(self, images, return_tensors="pt", **kwargs):
+        """Full-resolution processing delegated to inner processor."""
+        return self.inner(images=images, return_tensors=return_tensors, **kwargs)
+
+    def __getattr__(self, name):
+        """Proxy everything else to the inner processor."""
+        return getattr(self.inner, name)
+
+    def multi_scale(self, images, return_tensors="pt"):
+        """Produce a single dict with pixel_values at every scale.
+
+        This is what you'd call from a custom ``_prepare_mm_inputs``
+        override.  The returned dict can be used directly as mm_kwargs.
+        """
+        # Base resolution — whatever the inner processor produces
+        mm_kwargs = {}
+        base = self.inner(images=images, return_tensors=return_tensors)
+        for k, v in base.items():
+            mm_kwargs[k] = v
+
+        # Additional scales via bicubic downsampling of pixel_values
+        if "pixel_values" in mm_kwargs:
+            pv = mm_kwargs["pixel_values"]  # (B, C, H, W) or (B, N, C, H, W)
+            for s in self.scales:
+                mm_kwargs[f"pixel_values_s{s}"] = F.interpolate(
+                    pv, scale_factor=1/s, mode="bicubic", align_corners=False,
+                )
+
+        return mm_kwargs
+
+
+def multiscale_prepare_mm_inputs(self, multi_modal_data_list, device):
+    """Drop-in ``_prepare_mm_inputs`` replacement for multi-scale VLMs.
+
+    Monkey-patch or use in a subclass::
+
+        @register_algorithm("multiscale_grpo")
+        class MultiScaleGRPO(GRPO):
+            _prepare_mm_inputs = multiscale_prepare_mm_inputs
+
+    Or from outside the class::
+
+        trainer._prepare_mm_inputs = types.MethodType(
+            multiscale_prepare_mm_inputs, trainer
+        )
+    """
+    import base64, io
+    from PIL import Image
+
+    if multi_modal_data_list is None:
+        return {}
+
+    images = []
+    for mm_data in multi_modal_data_list:
+        if mm_data is not None and "image" in mm_data:
+            img_bytes = base64.b64decode(mm_data["image"])
+            images.append(Image.open(io.BytesIO(img_bytes)).convert("RGB"))
+        else:
+            # Dummy — loss mask will zero out the gradient
+            images.append(Image.new("RGB", (224, 224), (0, 0, 0)))
+
+    # Produce all scales in one call
+    mm_kwargs = self.processor.image_processor.multi_scale(images)
+
+    # Move everything to device
+    for key in mm_kwargs:
+        if isinstance(mm_kwargs[key], torch.Tensor):
+            mm_kwargs[key] = mm_kwargs[key].to(device, non_blocking=True)
+
+    return mm_kwargs
 
 
 # ═══════════════════════════════════════════════════════════════════════════
