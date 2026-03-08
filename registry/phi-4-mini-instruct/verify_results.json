@@ -1,0 +1,18 @@
+{
+  "model_id": "microsoft/Phi-4-mini-instruct",
+  "steps": {
+    "tokenizer": "OK",
+    "chat_template": "OK",
+    "model_load": "OK",
+    "forward": "OK",
+    "backward": "OK",
+    "deepspeed": "OK"
+  },
+  "success": true,
+  "error": null,
+  "param_count": 3836021760,
+  "param_count_b": 3.84,
+  "initial_loss": 2.0751378536224365,
+  "deepspeed_loss": 2.0751378536224365,
+  "elapsed_seconds": 61.2
+}

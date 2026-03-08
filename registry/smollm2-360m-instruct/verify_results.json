@@ -1,0 +1,18 @@
+{
+  "model_id": "HuggingFaceTB/SmolLM2-360M-Instruct",
+  "steps": {
+    "tokenizer": "OK",
+    "chat_template": "OK",
+    "model_load": "OK",
+    "forward": "OK",
+    "backward": "OK",
+    "deepspeed": "OK"
+  },
+  "success": true,
+  "error": null,
+  "param_count": 361821120,
+  "param_count_b": 0.36,
+  "initial_loss": 2.355573892593384,
+  "deepspeed_loss": 2.3568789958953857,
+  "elapsed_seconds": 9.1
+}

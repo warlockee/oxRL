@@ -36,6 +36,8 @@ class GRPO(BaseAlgorithm):
                  betas: list = None,
                  weight_decay: float = 0.01,
                  adam_epsilon: float = 1e-8,
+                 model_class: str = "llm",
+                 freeze_vision_encoder: bool = True,
                  ):
 
         self.loss_variant = loss_variant
@@ -65,6 +67,11 @@ class GRPO(BaseAlgorithm):
         self.betas = betas if betas is not None else [0.9, 0.95]
         self.weight_decay = float(weight_decay)
         self.adam_epsilon = float(adam_epsilon)
+
+        # VLM / multimodal
+        self.model_class = model_class
+        self.freeze_vision_encoder = freeze_vision_encoder
+        self.processor = None
 
         # use cross entropy loss for policy gradient
         self.cross_entropy = torch.nn.CrossEntropyLoss(reduction="none")
@@ -105,6 +112,16 @@ class GRPO(BaseAlgorithm):
         # 2. Load model
         model, ref_model = self.load_model()
         print(f"[Alg:{self.alg_name}][Rank {rank}] Model loaded: {self.model_path}")
+
+        # Load processor and freeze vision encoder for VLM training
+        if self.model_class == "vlm":
+            from transformers import AutoProcessor
+            self.processor = AutoProcessor.from_pretrained(
+                self.model_path, trust_remote_code=self.trust_remote_code
+            )
+            print(f"[Alg:{self.alg_name}][Rank {rank}] AutoProcessor loaded for VLM training")
+            if self.freeze_vision_encoder:
+                self._freeze_vision_encoder(model)
 
         # Apply LoRA if enabled
         if self.lora_config and self.lora_config.enabled:
@@ -170,11 +187,12 @@ class GRPO(BaseAlgorithm):
             ref_model_path=self.ref_model_path if self.kl_coeff > 0.0 else None
         )
 
-    def ref_forward(self, input_ids, att_mask, target_ids, pos_ids):
+    def ref_forward(self, input_ids, att_mask, target_ids, pos_ids, mm_kwargs=None):
         '''
             input_ids and att_mask are [B, T]
             pos_ids is [B, T] or None
             target_ids is [B, T-1]
+            mm_kwargs: optional dict of multimodal tensors (pixel_values, etc.)
             Returns:
                 logits is [B, T-1, vocab_size]
         '''
@@ -186,11 +204,17 @@ class GRPO(BaseAlgorithm):
             # Generate token_type_ids (zeros) as some models like Gemma 3 require them
             token_type_ids = torch.zeros_like(input_ids)
 
-            output = self.ref_model_engine(input_ids=input_ids,
-                                           attention_mask=att_mask,
-                                           position_ids=pos_ids,
-                                           token_type_ids=token_type_ids,
-                                           use_cache=self.use_cache)
+            forward_kwargs = dict(
+                input_ids=input_ids,
+                attention_mask=att_mask,
+                position_ids=pos_ids,
+                token_type_ids=token_type_ids,
+                use_cache=self.use_cache,
+            )
+            if mm_kwargs:
+                forward_kwargs.update(mm_kwargs)
+
+            output = self.ref_model_engine(**forward_kwargs)
 
             # [B, T, V] -> [B, T-1, V]
             logits = output.logits[:, :-1, :].contiguous()
@@ -204,10 +228,11 @@ class GRPO(BaseAlgorithm):
 
         return ref_logprobs
 
-    def policy_forward(self, input_ids, att_mask, pos_ids):
+    def policy_forward(self, input_ids, att_mask, pos_ids, mm_kwargs=None):
         '''
             input_ids and att_mask are [B, T]
             pos_ids is [B, T] or None
+            mm_kwargs: optional dict of multimodal tensors (pixel_values, etc.)
             Returns:
                 logits is [B, T-1, vocab_size]
                 entropies is [B, T-1]
@@ -220,11 +245,17 @@ class GRPO(BaseAlgorithm):
         token_type_ids = torch.zeros_like(input_ids)
 
         # feed data to model
-        output = self.policy_engine(input_ids=input_ids,
-                                   attention_mask=att_mask,
-                                   position_ids=pos_ids,
-                                   token_type_ids=token_type_ids,
-                                   use_cache=self.use_cache)
+        forward_kwargs = dict(
+            input_ids=input_ids,
+            attention_mask=att_mask,
+            position_ids=pos_ids,
+            token_type_ids=token_type_ids,
+            use_cache=self.use_cache,
+        )
+        if mm_kwargs:
+            forward_kwargs.update(mm_kwargs)
+
+        output = self.policy_engine(**forward_kwargs)
 
         # [B, T, V] -> [B, T-1, V]
         logits = output.logits[:, :-1, :].contiguous()
@@ -325,13 +356,19 @@ class GRPO(BaseAlgorithm):
             att_mask  = micro_batch['attn_mask'].to(device, non_blocking=True)
             pos_ids   = micro_batch.get('position_ids', None)
 
+            # Prepare multimodal inputs if present
+            mm_kwargs = {}
+            if self.model_class == "vlm" and micro_batch.get("multi_modal_data") is not None:
+                mm_kwargs = self._prepare_mm_inputs(micro_batch["multi_modal_data"], device)
+
             ########
             # 2. Compute loss
             ########
             # Forward pass through the current policy.
             pi_logprobs, pi_entropies, target_ids = self.policy_forward(input_ids=input_ids,
                                                                         att_mask=att_mask,
-                                                                        pos_ids=pos_ids)
+                                                                        pos_ids=pos_ids,
+                                                                        mm_kwargs=mm_kwargs)
 
             ref_logprobs = None
             if self.kl_coeff > 0.0 and self.ref_model_engine is not None:
@@ -339,6 +376,7 @@ class GRPO(BaseAlgorithm):
                                                 att_mask=att_mask,
                                                 target_ids=target_ids,
                                                 pos_ids=pos_ids,
+                                                mm_kwargs=mm_kwargs,
                                                 )
 
             # Compute policy loss using the current policy.

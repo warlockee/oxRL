@@ -225,7 +225,8 @@ class Model(BaseModel):
     ref_model_offload_to_cpu: bool = True
     trust_remote_code: bool = False
     use_cache: bool = False
-    model_class: str = "llm"
+    model_class: str = "llm"  # "llm" or "vlm"
+    freeze_vision_encoder: bool = True  # freeze vision encoder during RL training
     attn_implementation: str = "flash_attention_2"
     gradient_checkpointing: bool = True
 
@@ -307,6 +308,34 @@ class Lora(BaseModel):
     bias: str = "none"
     task_type: str = "CAUSAL_LM"
 
+class CompositeRewardEntry(BaseModel):
+    '''A single reward function entry in a composite reward.'''
+    model_config = ConfigDict(extra='forbid')
+    func: str           # reward function name or dotted module path
+    weight: float = 1.0
+
+class LLMJudgeConfig(BaseModel):
+    '''Configuration for LLM-as-judge reward scoring.'''
+    model_config = ConfigDict(extra='forbid')
+    api_base: str                        # e.g. "http://localhost:8000/v1"
+    model: str                           # e.g. "meta-llama/Llama-3-70B-Instruct"
+    prompt_template: str = "Rate the following response on a scale of 0 to 10.\n\nPrompt: {prompt}\n\nResponse: {response}\n\nScore (0-10):"
+    max_tokens: int = 64
+    temperature: float = 0.0
+    max_retries: int = 3
+    retry_delay: float = 1.0
+    timeout: float = 30.0
+    fallback_score: float = 0.0          # score on API failure
+    normalize_to_01: bool = True         # map [0,10] -> [0,1]
+    api_key: str = ""                    # or use env var
+    api_key_env: str = "OPENAI_API_KEY"
+
+class RewardModelConfig(BaseModel):
+    '''Configuration for learned reward model backend.'''
+    model_config = ConfigDict(extra='forbid')
+    model_path: str        # path to trained RM checkpoint
+    device: str = "cuda"
+
 class Reward(BaseModel):
     '''
         Everything related to rewards (RL-specific).
@@ -325,6 +354,9 @@ class Reward(BaseModel):
     # multimodal_reward_func: 0-1.0 correctness + modality (vision/audio)
     # rm_reward_func:         continuous via trained reward model (RLHF)
     reward_func: str = "default_reward_func"
+    composite_rewards: list[CompositeRewardEntry] | None = None
+    llm_judge: LLMJudgeConfig | None = None
+    reward_model: RewardModelConfig | None = None
 
 class Rollout(BaseModel):
     '''

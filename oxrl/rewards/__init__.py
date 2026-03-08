@@ -24,7 +24,13 @@ from oxrl.rewards.format import format_reward_func
 from oxrl.rewards.qa import mcqa_reward_func
 from oxrl.rewards.reasoning import reasoning_reward_func
 from oxrl.rewards.multimodal import multimodal_reward_func
-from oxrl.rewards.rm_reward import rm_reward_func, load_reward_model
+from oxrl.rewards.backend import RewardBackend, FunctionRewardBackend
+from oxrl.rewards.rm_reward import rm_reward_func, load_reward_model, RewardModelBackend
+from oxrl.rewards.loader import (
+    resolve_reward_func, create_reward_backend,
+    CompositeReward, CompositeRewardBackend,
+)
+from oxrl.rewards.llm_judge import LLMJudgeReward
 
 __all__ = [
     "default_reward_func",
@@ -41,4 +47,12 @@ __all__ = [
     "extract_answer",
     "extract_math_answer",
     "extract_mcqa_answer",
+    "RewardBackend",
+    "FunctionRewardBackend",
+    "RewardModelBackend",
+    "resolve_reward_func",
+    "create_reward_backend",
+    "CompositeReward",
+    "CompositeRewardBackend",
+    "LLMJudgeReward",
 ]

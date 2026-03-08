@@ -51,6 +51,9 @@ def training_engine_setup(params, alg, world_size, master_addr, master_port):
         "deepspeed_config": params.deepspeed,
         "deepspeed_ref_config": params.deepspeed_ref,
         "lora_config": params.lora,
+        # multimodal / VLM arguments
+        "model_class": params.model.model_class,
+        "freeze_vision_encoder": params.model.freeze_vision_encoder,
         # algorithm related arguments
         "loss_variant": params.train.alg_name.lower(),
         # optimizer hyperparameters

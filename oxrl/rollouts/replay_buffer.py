@@ -58,6 +58,7 @@ class ReplayBuffer(Dataset):
                      dones=sample["pred_dones"],
                      old_logprobs=sample["pred_old_logprobs"],
                      v_olds=sample.get("v_old", None),
+                     multi_modal_data=sample.get("multi_modal_data", None),
                      )
 
     def add(self,
@@ -68,6 +69,7 @@ class ReplayBuffer(Dataset):
             dones: torch.Tensor,
             old_logprobs: torch.Tensor,
             v_olds: Optional[torch.Tensor] = None,
+            multi_modal_data: Optional[Dict[str, Any]] = None,
             )-> None:
         '''
             input_ids, rewards, zscores, mask, done, old_logprobs
@@ -116,6 +118,7 @@ class ReplayBuffer(Dataset):
             "dones": dones.detach().cpu(),
             "zscores": zscores.detach().cpu(),
             "v_olds": v_olds.detach().cpu() if v_olds is not None else None,
+            "multi_modal_data": multi_modal_data,  # opaque metadata, not a tensor
                         })
 
         # Count only tokens we will ever train on
@@ -181,6 +184,10 @@ class ReplayBuffer(Dataset):
         # this is per rank, this is not global. Should be revised outised this class.
         action_token_weight = float(batch_action_tokens) / float(total_action_tokens)
 
+        # Collect multimodal metadata (not a tensor, just a list)
+        mm_data_list = [x.get("multi_modal_data", None) for x in batch]
+        has_mm = any(d is not None for d in mm_data_list)
+
         return {
                 "input_ids": input_ids, # [B, T]
                 "attn_mask": attn_masks, # [B, T]
@@ -192,6 +199,7 @@ class ReplayBuffer(Dataset):
                 "v_olds": v_olds, # [B, T] or None
                 "batch_action_tokens": batch_action_tokens, # scalar int
                 "action_token_weight": action_token_weight, # scalar float
+                "multi_modal_data": mm_data_list if has_mm else None, # List[Optional[Dict]] or None
                 }
 
     def __getitem__(self, idx) -> Dict[str, Any]:

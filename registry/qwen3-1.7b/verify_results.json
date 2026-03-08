@@ -1,0 +1,18 @@
+{
+  "model_id": "Qwen/Qwen3-1.7B",
+  "steps": {
+    "tokenizer": "OK",
+    "chat_template": "OK",
+    "model_load": "OK",
+    "forward": "OK",
+    "backward": "OK",
+    "deepspeed": "OK"
+  },
+  "success": true,
+  "error": null,
+  "param_count": 1720574976,
+  "param_count_b": 1.72,
+  "initial_loss": 3.020395517349243,
+  "deepspeed_loss": 3.0138304233551025,
+  "elapsed_seconds": 19.2
+}

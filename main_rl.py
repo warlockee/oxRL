@@ -7,7 +7,6 @@ Each phase lives in its own module under oxrl/setup/ and oxrl/loops/.
 import os
 import re
 import argparse
-import importlib
 import time
 import numpy as np
 import ray
@@ -91,8 +90,13 @@ def main(config_file, experiment_id, log_level="INFO"):
     logger.info("Setting up inference/rollout engines...")
     if not config.reward.reward_func:
         raise ValueError("Reward function not specified")
-    reward_module = importlib.import_module("oxrl.rewards")
-    reward_fnc = getattr(reward_module, config.reward.reward_func)
+    from oxrl.rewards.loader import create_reward_backend
+    reward_fnc = create_reward_backend(
+        reward_func=config.reward.reward_func,
+        composite_rewards=config.reward.composite_rewards,
+        llm_judge_config=config.reward.llm_judge,
+        reward_model_config=config.reward.reward_model,
+    )
     logger.info(f"Using reward function: {config.reward.reward_func}")
 
     num_rollout_engines, rollout_engines = rollout_engine_setup(

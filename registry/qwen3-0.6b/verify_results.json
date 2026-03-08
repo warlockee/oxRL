@@ -1,0 +1,8 @@
+{
+  "model_id": "Qwen/Qwen3-0.6B",
+  "steps": {
+    "tokenizer": "FAIL: [Errno 28] No space left on device: '/home/erik/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B'"
+  },
+  "success": false,
+  "error": "[Errno 28] No space left on device: '/home/erik/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B'"
+}

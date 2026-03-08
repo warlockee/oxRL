@@ -286,6 +286,7 @@ class VLLMRolloutEngine:
                 for prompt_idx, data in enumerate(generated_outputs):
                     group_samples = []
                     group_stats   = {'rewards': [], 'lengths': []}
+                    prompt_mm_data = prompts[prompt_idx].get("multi_modal_data", None)
                     prompt_ids = list(data.prompt_token_ids or [])
                     prompt_len = len(prompt_ids)
                     if prompt_len == 0:
@@ -316,6 +317,7 @@ class VLLMRolloutEngine:
                         # Build per-response metadata for reward function
                         resp_metadata = metadata_list[prompt_idx].copy() if metadata_list[prompt_idx] else {}
                         resp_metadata["response_text"] = getattr(response, "text", "")
+                        resp_metadata.setdefault("prompt_text", "")
 
                         # it is important to score the response regardless of its length if it is empty
                         rewards_resp, is_per_token = score_response(self.reward_func, prompt_ids, response_ids, finish_reason, metadata=resp_metadata)
@@ -396,6 +398,9 @@ class VLLMRolloutEngine:
                                                 "prompt_ids": prompt_ids, # list[int]
                                                 "response_text": getattr(response, "text", ""),
                                                 "response_len": response_len,
+
+                                                # multimodal data (base64 encoded, or None)
+                                                "multi_modal_data": prompt_mm_data,
                                                 })
                     normalize_rewards(
                                             samples=group_samples,

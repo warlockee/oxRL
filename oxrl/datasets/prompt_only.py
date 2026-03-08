@@ -147,11 +147,21 @@ class PromptOnlyDataset(Dataset):
         elif "audio_base64" in sample:
             result["multi_modal_data"] = {"audio": sample["audio_base64"]}
 
-        # Pass answer through as metadata so reward functions can access it.
+        # Pass answer and prompt text through as metadata so reward functions can access them.
         # answer_key controls which parquet column to read; it always arrives
         # at the reward function as metadata["answer"].
+        metadata = {}
         if self.answer_key and self.answer_key in sample:
-            result["metadata"] = {"answer": sample[self.answer_key]}
+            metadata["answer"] = sample[self.answer_key]
+        # Decode prompt text for reward functions (e.g. LLM-as-judge)
+        prompt_text = self.tokenizer.apply_chat_template(
+            conversation=message,
+            add_generation_prompt=True,
+            tokenize=False,
+            return_tensors=None,
+        )
+        metadata["prompt_text"] = prompt_text
+        result["metadata"] = metadata
 
         if self.return_text:
             prompt_text = self.tokenizer.apply_chat_template(
