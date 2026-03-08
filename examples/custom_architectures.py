@@ -310,14 +310,27 @@ class RetNetAdapter:
         self.model = model
 
     def forward(self, input_ids, state=None):
-        # Standard RetNet recurrence: (batch, 1, hidden) -> (batch, 1, hidden), state
+        """Run one recurrent step.
+
+        Args:
+            input_ids: (batch, seq_len) token ids.
+            state: Recurrent state from previous step, or None.
+
+        Returns:
+            (logits, next_state) — logits are (batch, seq_len, vocab).
+        """
         logits, next_state = self.model(input_ids, rnn_state=state)
         return logits, next_state
 
 
 @register_algorithm("retnet_rl")
 class RetNetRLAlgorithm:
-    # Implementation that uses RetNetAdapter
+    """GRPO/PPO variant that uses RetNetAdapter for recurrent forward passes.
+
+    Register as ``alg_name: retnet_rl`` in config.  In a real implementation,
+    subclass GRPO and override ``policy_forward`` to delegate to
+    ``RetNetAdapter.forward``.
+    """
     pass
 
 
@@ -561,87 +574,44 @@ class CurriculumRewardShaper(RewardShaper):
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-class MultiScaleImageProcessor:
-    """Processor that produces pixel_values at multiple resolutions.
+def downsample_pixel_values(mm_kwargs: dict, scales: list[int]) -> dict:
+    """Add downsampled copies of pixel_values to mm_kwargs.
 
-    Wraps an existing HF image_processor and adds downsampled scales.
-    The base-resolution tensor goes into ``pixel_values`` (as usual),
-    and each additional scale goes into ``pixel_values_<size>``.
+    Args:
+        mm_kwargs: Dict from the base image processor, must contain ``pixel_values``.
+        scales:    Downsample divisors, e.g. ``[2, 4]`` → half-res, quarter-res.
 
-    The model's forward method receives all of them via **forward_kwargs.
-    Models that don't expect the extra keys simply ignore them (HF models
-    use **kwargs), so this is safe to use even with single-scale models.
+    Returns:
+        The same dict with ``pixel_values_s{s}`` keys added for each scale.
 
-    Usage::
+    Calling spec::
 
-        processor = AutoProcessor.from_pretrained("Qwen/Qwen2-VL-7B")
-        processor.image_processor = MultiScaleImageProcessor(
-            processor.image_processor, scales=[384, 192, 96]
-        )
-        # Now _prepare_mm_inputs returns pixel_values, pixel_values_s192,
-        # pixel_values_s96 — all routed through mm_kwargs automatically.
+        mm_kwargs = processor(images=images, return_tensors="pt")
+        mm_kwargs = downsample_pixel_values(mm_kwargs, scales=[2, 4])
+        # mm_kwargs now has: pixel_values, pixel_values_s2, pixel_values_s4
     """
-
-    def __init__(self, inner_processor, scales: list[int] = None):
-        """
-        Args:
-            inner_processor: The original HF image processor.
-            scales: List of additional spatial sizes to produce.
-                    Each must be smaller than the inner processor's
-                    native resolution. Default: [192, 96].
-        """
-        self.inner = inner_processor
-        self.scales = scales or [192, 96]
-
-    def __call__(self, images, return_tensors="pt", **kwargs):
-        """Full-resolution processing delegated to inner processor."""
-        return self.inner(images=images, return_tensors=return_tensors, **kwargs)
-
-    def __getattr__(self, name):
-        """Proxy everything else to the inner processor."""
-        return getattr(self.inner, name)
-
-    def multi_scale(self, images, return_tensors="pt"):
-        """Produce a single dict with pixel_values at every scale.
-
-        This is what you'd call from a custom ``_prepare_mm_inputs``
-        override.  The returned dict can be used directly as mm_kwargs.
-        """
-        # Base resolution — whatever the inner processor produces
-        mm_kwargs = {}
-        base = self.inner(images=images, return_tensors=return_tensors)
-        for k, v in base.items():
-            mm_kwargs[k] = v
-
-        # Additional scales via bicubic downsampling of pixel_values
-        if "pixel_values" in mm_kwargs:
-            pv = mm_kwargs["pixel_values"]  # (B, C, H, W) or (B, N, C, H, W)
-            for s in self.scales:
-                mm_kwargs[f"pixel_values_s{s}"] = F.interpolate(
-                    pv, scale_factor=1/s, mode="bicubic", align_corners=False,
-                )
-
+    if "pixel_values" not in mm_kwargs:
         return mm_kwargs
+    pv = mm_kwargs["pixel_values"]
+    for s in scales:
+        mm_kwargs[f"pixel_values_s{s}"] = F.interpolate(
+            pv, scale_factor=1/s, mode="bicubic", align_corners=False,
+        )
+    return mm_kwargs
 
 
 def multiscale_prepare_mm_inputs(self, multi_modal_data_list, device):
     """Drop-in ``_prepare_mm_inputs`` replacement for multi-scale VLMs.
 
-    Monkey-patch or use in a subclass::
+    Produces base pixel_values plus downsampled scales=[2, 4] via
+    :func:`downsample_pixel_values`.
+
+    Usage::
 
         @register_algorithm("multiscale_grpo")
         class MultiScaleGRPO(GRPO):
             _prepare_mm_inputs = multiscale_prepare_mm_inputs
-
-    Or from outside the class::
-
-        trainer._prepare_mm_inputs = types.MethodType(
-            multiscale_prepare_mm_inputs, trainer
-        )
     """
-    import base64, io
-    from PIL import Image
-
     if multi_modal_data_list is None:
         return {}
 
@@ -651,13 +621,12 @@ def multiscale_prepare_mm_inputs(self, multi_modal_data_list, device):
             img_bytes = base64.b64decode(mm_data["image"])
             images.append(Image.open(io.BytesIO(img_bytes)).convert("RGB"))
         else:
-            # Dummy — loss mask will zero out the gradient
             images.append(Image.new("RGB", (224, 224), (0, 0, 0)))
 
-    # Produce all scales in one call
-    mm_kwargs = self.processor.image_processor.multi_scale(images)
+    # Base resolution from processor, then add downsampled scales
+    mm_kwargs = self.processor(images=images, return_tensors="pt")
+    mm_kwargs = downsample_pixel_values(dict(mm_kwargs), scales=[2, 4])
 
-    # Move everything to device
     for key in mm_kwargs:
         if isinstance(mm_kwargs[key], torch.Tensor):
             mm_kwargs[key] = mm_kwargs[key].to(device, non_blocking=True)
