@@ -23,11 +23,24 @@ RL_ALGORITHMS = {
 
 
 def get_algorithm_class(alg_name: str):
-    """Look up algorithm class by name. Raises ValueError if unknown."""
+    """Look up algorithm class by name.
+
+    Checks the built-in registry first, then falls back to any custom
+    algorithms registered via :func:`oxrl.models.research_adapters.register_algorithm`.
+    ``@ray.remote`` is applied automatically if the custom class lacks it.
+    Raises ValueError if the name is not found in either registry.
+    """
     key = alg_name.lower()
-    if key not in RL_ALGORITHMS:
-        raise ValueError(f"Unknown algorithm: {alg_name}. Available: {list(RL_ALGORITHMS)}")
-    return RL_ALGORITHMS[key]
+    if key in RL_ALGORITHMS:
+        return RL_ALGORITHMS[key]
+    from oxrl.models.research_adapters import get_custom_algorithm
+    custom = get_custom_algorithm(key)
+    if custom is not None:
+        if not hasattr(custom, '_ray_class_method_names'):
+            import ray
+            custom = ray.remote(custom)
+        return custom
+    raise ValueError(f"Unknown algorithm: {alg_name}. Available: {list(RL_ALGORITHMS)}")
 
 
 def training_engine_setup(params, alg, world_size, master_addr, master_port):
@@ -55,7 +68,7 @@ def training_engine_setup(params, alg, world_size, master_addr, master_port):
         "model_class": params.model.model_class,
         "freeze_vision_encoder": params.model.freeze_vision_encoder,
         # algorithm related arguments
-        "loss_variant": params.train.alg_name.lower(),
+        "loss_variant": (params.train.loss_variant or params.train.alg_name).lower(),
         # optimizer hyperparameters
         "lr": params.train.lr,
         "betas": params.train.betas,

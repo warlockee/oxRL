@@ -33,6 +33,12 @@ def main(config_file, experiment_id, log_level="INFO"):
     logger.info("Starting RL training...")
 
     config = cfg.load_and_verify(method="rl", input_yaml=config_file, experiment_id=experiment_id)
+
+    # Auto-load researcher extension module (registers custom losses/algorithms)
+    if hasattr(config, 'research') and config.research.module:
+        from oxrl.models.research_adapters import load_research_module
+        load_research_module(config.research.module)
+
     set_random_seeds(seed=config.run.seed)
     tracker = setup_tracker(config=config, rank=rank)
     logger.info(f"Config loaded. experiment_id: {config.run.experiment_id}")

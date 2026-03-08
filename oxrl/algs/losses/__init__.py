@@ -24,10 +24,20 @@ LOSS_REGISTRY = {
 
 
 def get_loss_fn(variant: str):
-    """Look up a loss function by name. Raises ValueError if unknown."""
-    if variant not in LOSS_REGISTRY:
-        raise ValueError(
-            f"Unknown loss variant: {variant!r}. "
-            f"Available: {sorted(LOSS_REGISTRY.keys())}"
-        )
-    return LOSS_REGISTRY[variant]
+    """Look up a loss function by name.
+
+    Checks the built-in registry first, then falls back to any custom
+    losses registered via :func:`oxrl.models.research_adapters.register_loss`.
+    Raises ValueError if the variant is not found in either registry.
+    """
+    if variant in LOSS_REGISTRY:
+        return LOSS_REGISTRY[variant]
+    # Lazy import to avoid circular dependencies
+    from oxrl.models.research_adapters import get_custom_loss_fn
+    custom = get_custom_loss_fn(variant)
+    if custom is not None:
+        return custom
+    raise ValueError(
+        f"Unknown loss variant: {variant!r}. "
+        f"Available: {sorted(LOSS_REGISTRY.keys())}"
+    )

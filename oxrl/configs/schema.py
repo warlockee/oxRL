@@ -198,6 +198,9 @@ class Train(BaseModel):
     ppo_tau: float = 0.95
     ppo_gamma: float = 0.99
 
+    # Research extensibility: override loss function independently of algorithm
+    loss_variant: str | None = None  # e.g. "dr_grpo"; defaults to alg_name when None
+
 class Data(BaseModel):
     '''
         Everything related to data goes here.
@@ -382,6 +385,14 @@ class Rollout(BaseModel):
     tensor_parallel_size: int = 1
     rollout_batch_size_per_gpu: int = 2
 
+class Research(BaseModel):
+    '''
+        Open-ended section for researcher extensions.
+        extra='allow' so arbitrary keys (e.g. custom hyper-params) are accepted.
+    '''
+    model_config = ConfigDict(extra='allow')
+    module: str | None = None  # dotted path to researcher's module
+
 class Config(BaseModel):
     '''
         This is the main configuration class for the experiment where it puts all the sub-configurations
@@ -400,6 +411,8 @@ class Config(BaseModel):
     rollout: Rollout = Field(default_factory=Rollout)
     # Reference model DeepSpeed config
     deepspeed_ref: DeepSpeedRef | None = None
+    # Research extensions
+    research: Research = Field(default_factory=Research)
 
     def sync_deepspeed_config(self, world_size: int) -> None:
         """Thin wrapper that delegates to oxrl.configs.sync (backward compat)."""
