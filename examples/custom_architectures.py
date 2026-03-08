@@ -303,88 +303,22 @@ def compute_retnet_pg_loss(
     return loss_total, metrics
 
 
-@register_algorithm("retnet_grpo")
 class RetNetAdapter:
-    """Demonstrates recurrent inference logic (retentive-style) without modifying PPO.
+    """Demonstrates recurrent inference logic (retentive-style) without modifying PPO."""
 
-    RetNet replaces O(N^2) attention with O(N) recurrent retention.
-    During training we use the parallel (chunked) path for throughput;
-    during generation / rollout we use the recurrent path for O(1)
-    per-step cost.
+    def __init__(self, model):
+        self.model = model
 
-    In a real implementation you would subclass ``oxrl.algs.grpo.GRPO``
-    and override ``policy_forward`` / ``ref_forward``.
-    """
+    def forward(self, input_ids, state=None):
+        # Standard RetNet recurrence: (batch, 1, hidden) -> (batch, 1, hidden), state
+        logits, next_state = self.model(input_ids, rnn_state=state)
+        return logits, next_state
 
-    def forward_recurrent(self, input_ids, state=None):
-        """Single-step recurrent forward — used during rollout / generation.
 
-        In a real RetNet this replaces the O(N^2) attention with a
-        fixed-size state that is updated per token.
-
-        Args:
-            input_ids: (B, 1) — single token per step.
-            state: Previous recurrent state dict, or None for the first token.
-
-        Returns:
-            logits: (B, 1, V)
-            new_state: Updated recurrent state dict.
-        """
-        if state is None:
-            state = self._init_recurrent_state(input_ids)
-
-        # Retention: S_n = gamma * S_{n-1} + k_n^T v_n
-        # Output:    o_n = q_n S_n
-        outputs = self.policy_engine(
-            input_ids=input_ids,
-            recurrent_state=state,
-            forward_mode="recurrent",
-            use_cache=False,
-        )
-        return outputs.logits, outputs.recurrent_state
-
-    def forward_parallel(self, input_ids, att_mask, pos_ids, mm_kwargs=None):
-        """Chunked parallel forward — used during the training step.
-
-        Processes the full sequence in chunks for O(N) memory while
-        still benefiting from GPU parallelism within each chunk.
-        """
-        retention_mask = att_mask.float()  # RetNet uses float mask, not bool
-        forward_kwargs = dict(
-            input_ids=input_ids,
-            retention_mask=retention_mask,
-            forward_mode="chunkwise",
-            chunk_size=getattr(self, "retention_chunk_size", 512),
-            use_cache=False,
-        )
-        if mm_kwargs:
-            forward_kwargs.update(mm_kwargs)
-
-        outputs = self.policy_engine(**forward_kwargs)
-        return outputs.logits
-
-    def _init_recurrent_state(self, input_ids):
-        """Create zero-initialised retention state."""
-        B = input_ids.shape[0]
-        device = input_ids.device
-        # One state matrix per layer per head: (B, heads, d_k, d_v)
-        n_layers = getattr(self.policy_engine.module.config, "num_hidden_layers", 24)
-        n_heads = getattr(self.policy_engine.module.config, "num_attention_heads", 16)
-        d_k = d_v = getattr(self.policy_engine.module.config, "hidden_size", 2048) // n_heads
-        return {
-            "retention": [
-                torch.zeros(B, n_heads, d_k, d_v, device=device)
-                for _ in range(n_layers)
-            ]
-        }
-
-    # Our PPO/GRPO loops can call this through a generic 'forward' hook —
-    # it dispatches to parallel (training) or recurrent (generation)
-    # based on sequence length, so the algorithm code stays unchanged.
-    def forward(self, input_ids, att_mask, pos_ids, mm_kwargs=None, state=None):
-        if input_ids.shape[1] == 1 and state is not None:
-            return self.forward_recurrent(input_ids, state=state)
-        return self.forward_parallel(input_ids, att_mask, pos_ids, mm_kwargs=mm_kwargs)
+@register_algorithm("retnet_rl")
+class RetNetRLAlgorithm:
+    # Implementation that uses RetNetAdapter
+    pass
 
 
 class VJEPA2RewardAdapter:
