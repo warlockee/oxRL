@@ -33,17 +33,25 @@ Context-length minimized principle. Following [LLM Oriented Design](https://gith
 ---
 ## Usage
 
-Post-train any model in under 10 lines of code. oxRL auto-detects your hardware, auto-prepares datasets, and scales to multi-GPU automatically.
+Post-train any model with one command. oxRL auto-detects your hardware, auto-prepares datasets, and scales to multi-GPU automatically.
+
+```bash
+# CLI — one command to train
+oxrl train --model Qwen/Qwen2.5-0.5B-Instruct --task math --epochs 3
+
+# With a custom dataset (JSONL or Parquet)
+oxrl train --model Qwen/Qwen2.5-7B-Instruct --dataset ./my_data.jsonl --task reasoning
+```
 
 ```python
+# Python API — under 3 lines
 from oxrl import Trainer
 
-# 1. Initialize with any HuggingFace model
 trainer = Trainer(model="deepseek-ai/DeepSeek-R1-Distill-Llama-8B")
-
-# 2. Start reasoning post-training (Open-R1 recipe)
 trainer.train(task="reasoning")
 ```
+
+Datasets can be **Parquet or JSONL** — format is auto-detected from the file extension.
 
 ---
 

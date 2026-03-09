@@ -37,7 +37,8 @@ class PromptPreferenceDataset(Dataset):
 
     def _load_data(self):
         try:
-            self.data = load_dataset("parquet", data_files=self.data_path, split="train")
+            fmt = "json" if self.data_path.endswith(".jsonl") or self.data_path.endswith(".json") else "parquet"
+            self.data = load_dataset(fmt, data_files=self.data_path, split="train")
         except Exception as e:
             raise Exception(f"Failed to load data from {self.data_path}: {str(e)}")
         self.len_data = len(self.data)

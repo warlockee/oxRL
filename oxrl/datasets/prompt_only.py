@@ -47,7 +47,8 @@ class PromptOnlyDataset(Dataset):
         try:
             # Loads lazily (disk/cache). split='train' is a HF datasets arg:
             #  without it we get a DatasetDict; with it we get a Dataset.
-            self.data = load_dataset("parquet", data_files=self.data_path, split="train")
+            fmt = "json" if self.data_path.endswith(".jsonl") or self.data_path.endswith(".json") else "parquet"
+            self.data = load_dataset(fmt, data_files=self.data_path, split="train")
 
         except Exception as e:
             raise Exception(f"Failed to load data from {self.data_path}: {str(e)}")

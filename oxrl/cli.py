@@ -178,6 +178,13 @@ def main():
     doctor_parser = subparsers.add_parser("doctor", help="Check environment for common issues")
     doctor_parser.add_argument("--fix", action="store_true", help="Attempt to automatically fix issues")
 
+    train_parser = subparsers.add_parser("train", help="Train a model with one command")
+    train_parser.add_argument("--model", type=str, required=True, help="HuggingFace model ID")
+    train_parser.add_argument("--task", type=str, default="math", help="Task type (math, reasoning, code, instruct)")
+    train_parser.add_argument("--dataset", type=str, default=None, help="Dataset name or path to .jsonl/.parquet file")
+    train_parser.add_argument("--epochs", type=int, default=1, help="Number of training epochs")
+    train_parser.add_argument("--steps", type=int, default=10, help="Optimizer steps per epoch")
+
     report_parser = subparsers.add_parser("report", help="Generate a GitHub issue report for a failure")
     report_parser.add_argument("--model", type=str, help="Model ID that failed")
     report_parser.add_argument("--log", type=str, help="Path to the failure log")
@@ -187,7 +194,11 @@ def main():
     
     prompt_star()
 
-    if args.command == "doctor":
+    if args.command == "train":
+        from oxrl import Trainer
+        trainer = Trainer(model=args.model)
+        trainer.train(task=args.task, dataset=args.dataset, epochs=args.epochs, steps_per_epoch=args.steps)
+    elif args.command == "doctor":
         doctor(fix=args.fix)
     elif args.command == "report":
         from oxrl.swarm.bug_reporter import summarize_failure, submit_github_issue

@@ -64,9 +64,15 @@ class Trainer:
         
         # 2. Apply overrides
         if dataset:
-            # We assume the user has preprocessed this dataset if it is custom
-            config_dict["data"]["train_dnames"] = [dataset]
-            config_dict["data"]["train_ratios"] = {dataset: 1.0}
+            if os.path.isfile(dataset):
+                config_dict["data"]["train_files_path"] = os.path.abspath(dataset)
+                config_dict["data"]["val_files_path"] = os.path.abspath(dataset)
+                name = Path(dataset).stem
+                config_dict["data"]["train_dnames"] = [name]
+                config_dict["data"]["train_ratios"] = {name: 1.0}
+            else:
+                config_dict["data"]["train_dnames"] = [dataset]
+                config_dict["data"]["train_ratios"] = {dataset: 1.0}
             
         config_dict["train"]["total_number_of_epochs"] = epochs
         config_dict["train"]["train_steps_per_epoch"] = steps_per_epoch

@@ -46,7 +46,8 @@ class PromptResponseDataset(Dataset):
             # if we use split=train, it will return a Dataset
             # Dataset({...})
             # split here doesn't mean our actual splits. it is just for compatibility with huggingface datasets.
-            self.data = load_dataset("parquet", data_files=self.data_path, split="train")
+            fmt = "json" if self.data_path.endswith(".jsonl") or self.data_path.endswith(".json") else "parquet"
+            self.data = load_dataset(fmt, data_files=self.data_path, split="train")
 
         except Exception as e:
             raise Exception(f"Failed to load data from {self.data_path}: {str(e)}")
