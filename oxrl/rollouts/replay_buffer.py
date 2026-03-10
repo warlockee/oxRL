@@ -36,9 +36,9 @@ class ReplayBuffer(Dataset):
             - token_mask: torch.Tensor   --> [T] [Not added to replay buffer for now]
             - token_done: torch.Tensor   --> [T] [Not added to replay buffer for now]
             - token_old_logprobs: torch.Tensor --> [T] [Not added to replay buffer for now]
-            - pred_mask: torch.Tensor    --> [T] this is prediction aligned so no need to do any weired indexing
-            - pred_done: torch.Tensor    --> [T] this is prediction aligned so no need to do any weired indexing
-            - pred_old_logprobs: torch.Tensor --> [T] this is prediction aligned so no need to do any weired indexing
+            - pred_mask: torch.Tensor    --> [T] this is prediction aligned so no need to do any weird indexing
+            - pred_done: torch.Tensor    --> [T] this is prediction aligned so no need to do any weird indexing
+            - pred_old_logprobs: torch.Tensor --> [T] this is prediction aligned so no need to do any weird indexing
             - finish_reason: str         --> already used for done and mask
             - stop_reason: str           --> already used for done and mask
             - ended_on_eos: bool         --> already used for done and mask
