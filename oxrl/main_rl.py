@@ -128,7 +128,7 @@ def main(config_file, experiment_id, log_level="INFO"):
             train_batch_size_per_gpu=config.train.train_batch_size_per_gpu,
             number_of_training_steps=number_of_training_steps_per_epoch,
             epoch=epoch, global_step=global_step,
-            logger=logger, rank=rank, mlflow_run=mlflow_run, log_metrics_fn=log_metrics,
+            logger=logger, rank=rank, log_metrics_fn=log_metrics,
         )
 
         policy_version += 1

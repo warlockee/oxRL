@@ -81,7 +81,7 @@ def make_sampling_params(
         logit_bias=None,
         allowed_token_ids=None,
         bad_words=None,
-        logits_processors=None,
+        # logits_processors removed: not supported in vLLM V1 (>=0.17)
         # Returns required info
         logprobs=1,
         prompt_logprobs=(1 if prompt_logprobs else None),

@@ -108,10 +108,12 @@ def _deepspeed_offload(param_count_b: float, use_lora: bool = False) -> dict:
 
 
 def _gpu_memory_utilization(param_count_b: float) -> float:
-    if param_count_b <= 3.0:
-        return 0.4
+    if param_count_b <= 1.0:
+        return 0.2
+    elif param_count_b <= 3.0:
+        return 0.3
     elif param_count_b <= 7.0:
-        return 0.6
+        return 0.5
     else:
         return 0.85
 
@@ -249,7 +251,7 @@ def generate_config(
             "clip_grad_norm": 1.0,
             "lr_scheduler": "WarmupCosineLR",
             "kl_coeff": 0.0,
-            "clip_low": -0.2,
+            "clip_low": 0.2,
             "clip_high": 0.2,
             "entropy_coeff": 0.0,
             "update_after_full_replay": True,

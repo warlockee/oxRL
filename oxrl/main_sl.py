@@ -122,6 +122,11 @@ def training_engine_setup(deepspeed_config, model, train_config=None, ref_model=
     # Convert pydantic model to python Dict for DeepSpeed
     ds_config_dict = deepspeed_config.model_dump()
 
+    # When using CPU offloading for optimizer, allow non-DeepSpeed optimizers
+    # (we create a custom AdamW; DeepSpeed normally requires its own CPUAdam).
+    if ds_config_dict.get("zero_optimization", {}).get("offload_optimizer", {}).get("device") == "cpu":
+        ds_config_dict["zero_force_ds_cpu_optimizer"] = False
+
     # check to avoid re-initializing distributed backend
     if not torch.distributed.is_initialized():
         # 1. Initialize distributed training engine
@@ -196,7 +201,8 @@ def data_loader_setup(params, tokenizer, rank, world_size, batch_size, split):
     sampler = DistributedSampler(dataset,
                                  shuffle=shuffle,
                                  num_replicas=world_size,
-                                 rank=rank)
+                                 rank=rank,
+                                 seed=params.run.seed)
 
     # 3. Initialize data loader
     def worker_init_fn(worker_id):
@@ -710,12 +716,29 @@ if __name__ == "__main__":
         if torch.distributed.is_initialized():
             torch.distributed.barrier()
 
-        tag = f"iter{epoch+1:06d}"
-        model_path = get_experiment_dir_name(output_dir=config.run.checkpoint_dir, tag=tag, experiment_id=config.run.experiment_id)
-        logger.info(f"[Epoch {epoch+1}] Saving checkpoint to {model_path}")
+        # Only save checkpoint on the FINAL epoch to save disk space.
+        # For the NeurIPS experiments, we only need the final model for evaluation.
+        is_last_epoch = (epoch == config.train.total_number_of_epochs - 1)
+        if is_last_epoch:
+            tag = f"iter{epoch+1:06d}"
+            model_path = get_experiment_dir_name(output_dir=config.run.checkpoint_dir, tag=tag, experiment_id=config.run.experiment_id)
+            logger.info(f"[Epoch {epoch+1}] Saving FINAL checkpoint to {model_path}")
 
-        # DeepSpeed handles the collective saving internally so we don't need to worry about different ranks.
-        model_engine.save_checkpoint(model_path)
+            # Save HuggingFace-compatible checkpoint (model.safetensors + config.json)
+            # so lm-eval-harness can load it directly without conversion.
+            try:
+                model_engine.save_16bit_model(model_path)
+                if rank == 0:
+                    base_model = model_engine.module
+                    if hasattr(base_model, "config"):
+                        base_model.config.save_pretrained(model_path)
+                    tokenizer.save_pretrained(model_path)
+                logger.info(f"[Epoch {epoch+1}] HF checkpoint saved to {model_path}")
+            except Exception as e:
+                logger.warning(f"[Epoch {epoch+1}] HF save failed ({e}), falling back to DeepSpeed format")
+                model_engine.save_checkpoint(model_path)
+        else:
+            logger.info(f"[Epoch {epoch+1}] Skipping checkpoint (not final epoch)")
 
         # Wait for saving to complete on all ranks
         if torch.distributed.is_initialized():

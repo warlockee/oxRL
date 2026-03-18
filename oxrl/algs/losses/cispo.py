@@ -38,9 +38,9 @@ def compute_cispo_loss(
         logprobs, old_logprobs, advantages, mask
     )
 
-    # Detached clipped ratio * logprobs (no grad through ratio)
+    # Detached clipped ratio * logratio (no grad through ratio weight)
     clipped_ratio = torch.clamp(ratio, 1.0 - clip_low, 1.0 + clip_high)
-    loss_pi = -(clipped_ratio.detach() * logprobs * adv * mask).sum() / denom
+    loss_pi = -(clipped_ratio.detach() * logratio * adv * mask).sum() / denom
 
     # Entropy bonus + KL penalty
     loss_ent, kl_ref = compute_entropy_and_kl(

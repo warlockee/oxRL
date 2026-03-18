@@ -101,6 +101,7 @@ class Train(BaseModel):
     val_batch_size_per_gpu: int = 16
 
     normalize_loss: bool = True
+    dynamic_ratio_every_step: bool = True
 
     # Knowledge Distillation
     kd_alpha: float = 0.5

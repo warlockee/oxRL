@@ -90,6 +90,7 @@ class VLLMRolloutEngine:
 
         # vllm engine config
         self.model_path = model_path
+        self._init_model_path = model_path  # preserve for tokenizer lookup
         self.loaded_version = -1
         self.trust_remote_code = trust_remote_code
         self.vllm_engine = None
@@ -119,6 +120,67 @@ class VLLMRolloutEngine:
         '''
         if self.engine_id == 0:
             print(f"[VLLMEngine][Rank {self.engine_id}] {msg}")
+
+    def _copy_tokenizer_to_tmpdir(self, tmpdir: str) -> None:
+        """Copy tokenizer files into tmpdir so vLLM can load the model.
+
+        Tries three sources in order:
+        1. The original model_path on the init (could be HF cache dir or model ID)
+        2. The HuggingFace hub cache for the model
+        3. AutoTokenizer.from_pretrained() download
+        """
+        import shutil
+        import glob
+
+        tokenizer_files = [
+            "tokenizer.json", "tokenizer_config.json",
+            "vocab.json", "merges.txt", "special_tokens_map.json",
+            "generation_config.json", "added_tokens.json",
+        ]
+        os.makedirs(tmpdir, exist_ok=True)
+
+        # If any tokenizer file already exists in tmpdir, skip
+        if os.path.exists(os.path.join(tmpdir, "tokenizer_config.json")):
+            return
+
+        # Source 1: the original init model_path (HF cache snapshot dir)
+        # self._init_model_path stores the original model path from __init__
+        init_path = getattr(self, "_init_model_path", self.model_path)
+
+        # Try to resolve HF model ID to cache dir
+        src_dir = None
+        if os.path.isdir(init_path):
+            src_dir = init_path
+        else:
+            # It's an HF model ID like "Qwen/Qwen2.5-0.5B-Instruct"
+            # Try to find the cached snapshot
+            try:
+                from huggingface_hub import snapshot_download
+                src_dir = snapshot_download(init_path, local_files_only=True)
+            except Exception:
+                pass
+
+        if src_dir and os.path.isdir(src_dir):
+            copied = 0
+            for fname in tokenizer_files:
+                src = os.path.join(src_dir, fname)
+                if os.path.exists(src):
+                    shutil.copy2(src, os.path.join(tmpdir, fname))
+                    copied += 1
+            if copied > 0:
+                self.log(f"Copied {copied} tokenizer files from {src_dir}")
+                return
+
+        # Source 2: AutoTokenizer download
+        try:
+            from transformers import AutoTokenizer
+            tokenizer = AutoTokenizer.from_pretrained(
+                init_path, trust_remote_code=self.trust_remote_code
+            )
+            tokenizer.save_pretrained(tmpdir)
+            self.log(f"Saved tokenizer from AutoTokenizer({init_path})")
+        except Exception as e:
+            self.log(f"WARNING: Could not copy tokenizer files: {e}")
 
 
     def refresh_model(self, model_path: str, version: int) -> bool:
@@ -191,13 +253,14 @@ class VLLMRolloutEngine:
             raise
 
     def refresh_model_from_state_dict(self, state_dict_ref, config_dict, version: int) -> bool:
-        """Refresh model weights from a Ray object store reference (in-place).
+        """Refresh model weights from a Ray object store reference.
 
-        Fast path: writes state dict to a local tmpdir, then uses vLLM's
-        update_config + reload_weights to swap weights without rebuilding
-        the engine (preserves KV cache allocation, CUDA memory).
+        Writes the state dict to a local tmpdir as model.safetensors + config.json,
+        then rebuilds the vLLM engine from that directory.
 
-        Falls back to full engine rebuild if reload_weights fails.
+        Note: vLLM V1 (>=0.17) does not support in-place weight reload via
+        collective_rpc('update_config') / collective_rpc('reload_weights').
+        We always do a full engine rebuild, which is safe and reliable.
 
         Args:
             state_dict_ref: Ray ObjectRef pointing to the state dict.
@@ -229,30 +292,22 @@ class VLLMRolloutEngine:
         save_state_dict_to_safetensors(tmpdir, state_dict)
         del state_dict  # free memory
 
+        # vLLM requires config.json + tokenizer files to load from a local dir.
+        # Save config from the gathered state dict metadata.
         if config_dict is not None:
             save_config_json(tmpdir, config_dict)
 
-        # 3. Try in-place reload (fast path) if engine already exists
-        if self.vllm_engine is not None:
-            try:
-                self.log(f"Attempting in-place weight reload from {tmpdir}")
-                self.vllm_engine.collective_rpc(
-                    "update_config",
-                    args=({"model_config": {"model": tmpdir}},)
-                )
-                self.vllm_engine.collective_rpc("reload_weights")
-                self.loaded_version = version
-                self.model_path = tmpdir
-                self.log(f"In-place weight reload succeeded (version {version})")
-                return True
-            except Exception as e:
-                self.log(f"In-place reload failed ({e}), falling back to full engine rebuild")
+        # Copy tokenizer files from the original model into the tmpdir.
+        # vLLM V1 needs the tokenizer to initialize the engine (for chat
+        # template, EOS detection, etc). Without these files, LLM() raises
+        # "expected str, bytes or os.PathLike object, not NoneType".
+        self._copy_tokenizer_to_tmpdir(tmpdir)
 
-        # 4. Fallback: full engine rebuild from tmpdir
+        # 3. Full engine rebuild from tmpdir (always reliable)
         self.model_path = tmpdir
         self.load_model()
         self.loaded_version = version
-        self.log(f"Model refreshed to version {version} (full rebuild from tmpdir)")
+        self.log(f"Model refreshed to version {version} (rebuild from {tmpdir})")
         return True
 
     def generate(self,
