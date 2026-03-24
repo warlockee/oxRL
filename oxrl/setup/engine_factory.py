@@ -1,7 +1,13 @@
 """
 Factory functions for creating Ray-based training and rollout engine actors.
+
+Handles GPU over-subscription: when training_gpus + rollout_gpus exceeds the
+number of GPUs visible to Ray, actors use fractional num_gpus so they can
+share physical GPUs.  This is safe because rollout and training phases run
+sequentially — they never compete for GPU compute simultaneously.
 """
 import os
+import ray
 from oxrl.utils.utils import safe_string_to_torch_dtype
 from oxrl.rollouts.vllm_engine import VLLMRolloutEngine
 from oxrl.algs.grpo import GRPO
@@ -20,6 +26,60 @@ RL_ALGORITHMS = {
     "rlaif": GRPO,
     "ppo": PPO,
 }
+
+
+def _compute_gpu_fractions(training_gpus, rollout_gpus, tp):
+    """Compute fractional num_gpus for training and rollout actors.
+
+    When training + rollout actors need more GPU slots than Ray has available,
+    reduce per-actor num_gpus so they can share physical GPUs via Ray's
+    fractional GPU scheduling. This is purely a scheduling accounting mechanism
+    -- each actor still gets a real GPU device.
+
+    Strategy: give training actors the lion's share (they need NCCL comms and
+    DeepSpeed) and rollout engines a small slice. Each training engine gets
+    slightly less than 1.0 GPU to leave room for a rollout engine to colocate.
+
+    Returns (train_gpu_fraction, rollout_gpu_fraction).
+    """
+    total_cluster_gpus = ray.cluster_resources().get("GPU", 0)
+    num_rollout_engines = max(1, rollout_gpus // tp)
+    total_requested = training_gpus + (num_rollout_engines * tp)
+
+    if total_requested <= total_cluster_gpus or total_cluster_gpus == 0:
+        # No over-subscription: each actor gets its full GPU slot
+        return 1.0, float(tp)
+
+    # Over-subscribed: rollout engines must colocate with training engines.
+    # Ray uses num_gpus for accounting: an actor requesting 0.75 GPU on a
+    # device with 1.0 total leaves 0.25 for another actor.
+    #
+    # Key constraint: on each physical GPU, train_frac + rollout_frac <= 1.0
+    # so that a rollout engine can fit alongside a training engine.
+    #
+    # Strategy: use 0.75/0.25 split (exact in binary floating point, avoiding
+    # precision issues with Ray's resource accounting).
+    rollout_fraction = 0.25 * tp
+    train_fraction = 0.75  # leaves 0.25 per GPU for rollout
+    # Verify global budget fits; if not, scale down further
+    total_budget = training_gpus * train_fraction + num_rollout_engines * rollout_fraction
+    if total_budget > total_cluster_gpus:
+        scale = total_cluster_gpus / total_budget
+        train_fraction = train_fraction * scale
+        rollout_fraction = rollout_fraction * scale
+    # Clamp minimums
+    train_fraction = max(0.5, train_fraction)
+    rollout_fraction = max(0.05, rollout_fraction)
+
+    print(
+        f"[engine_factory] GPU over-subscription detected: "
+        f"training={training_gpus}x1 + rollout={num_rollout_engines}x{tp} = {total_requested} "
+        f"> {int(total_cluster_gpus)} available. "
+        f"Using fractional GPUs: train={train_fraction}, "
+        f"rollout={rollout_fraction} per actor "
+        f"(rollout engines colocate with training engines)."
+    )
+    return train_fraction, rollout_fraction
 
 
 def get_algorithm_class(alg_name: str):
@@ -44,7 +104,15 @@ def get_algorithm_class(alg_name: str):
 
 
 def training_engine_setup(params, alg, world_size, master_addr, master_port):
-    """Create Ray training engine actors (one per GPU)."""
+    """Create Ray training engine actors (one per GPU).
+
+    Uses fractional num_gpus when GPU over-subscription is detected,
+    allowing rollout engines to colocate on the same physical GPUs.
+    """
+    tp = int(params.rollout.tensor_parallel_size)
+    rollout_gpus = int(params.run.rollout_gpus)
+    train_gpu_fraction, _ = _compute_gpu_fractions(world_size, rollout_gpus, tp)
+
     kwargs = {
         # model related arguments
         "model_path": params.model.name,
@@ -94,16 +162,23 @@ def training_engine_setup(params, alg, world_size, master_addr, master_port):
         for _env_key in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "CUDA_HOME"):
             if os.environ.get(_env_key):
                 ray_vars[_env_key] = os.environ[_env_key]
-        runner = alg.options(num_gpus=1, runtime_env={"env_vars": ray_vars}).remote(**kwargs)
+        runner = alg.options(num_gpus=train_gpu_fraction, runtime_env={"env_vars": ray_vars}).remote(**kwargs)
         ray_runners.append(runner)
 
     return ray_runners
 
 
 def rollout_engine_setup(params, reward_fnc, eos_id):
-    """Create Ray rollout engine actors (vLLM inference workers)."""
+    """Create Ray rollout engine actors (vLLM inference workers).
+
+    Uses fractional num_gpus when GPU over-subscription is detected,
+    allowing rollout engines to colocate on the same physical GPUs as
+    training engines.
+    """
     tp = int(params.rollout.tensor_parallel_size)
     rollout_gpus = int(params.run.rollout_gpus)
+    training_gpus = int(params.run.training_gpus)
+    _, rollout_gpu_fraction = _compute_gpu_fractions(training_gpus, rollout_gpus, tp)
 
     kwargs = {
         "model_path": params.model.name,
@@ -136,7 +211,7 @@ def rollout_engine_setup(params, reward_fnc, eos_id):
     rollout_engines = []
     for i in range(num_rollout_engines):
         kwargs["engine_id"] = i
-        _rollout_opts = {"num_gpus": tp}
+        _rollout_opts = {"num_gpus": rollout_gpu_fraction}
         if _rollout_env_vars:
             _rollout_opts["runtime_env"] = {"env_vars": _rollout_env_vars}
         rollout_engines.append(VLLMRolloutEngine.options(**_rollout_opts).remote(**kwargs))

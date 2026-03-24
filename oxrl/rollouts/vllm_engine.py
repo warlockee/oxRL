@@ -114,6 +114,14 @@ class VLLMRolloutEngine:
         # If True, broadcast a single scalar reward across all tokens in the sequence.
         self.reward_broadcast = bool(reward_broadcast)
 
+        # Periodic engine restart to prevent memory accumulation.
+        # Over hundreds of sequential generate() calls, small leaks in vLLM's
+        # internal state (KV cache fragmentation, scheduler metadata, etc.) can
+        # accumulate and eventually cause OOM. Restarting the engine periodically
+        # clears all GPU memory and starts fresh.
+        self._generate_call_count = 0
+        self._restart_every_n_calls = 200  # restart engine every N generate() calls
+
     def log(self, msg: str) -> None:
         '''
             Log message only if this is the first engine to avoid clutter.
@@ -207,6 +215,52 @@ class VLLMRolloutEngine:
         self.log(f"Model refreshed to version {version}")
         return True
 
+    def _compute_effective_gpu_memory_utilization(self) -> float:
+        """Compute effective gpu_memory_utilization based on actual free memory.
+
+        On epoch 0, the configured value is used directly. On subsequent epochs
+        (reloads), DeepSpeed training engines may hold residual GPU memory even
+        after offloading optimizer states. We clamp the utilization to what is
+        actually available, with a safety margin.
+
+        Returns the effective gpu_memory_utilization to pass to vLLM LLM().
+        """
+        configured = self.gpu_memory_utilization
+
+        if not torch.cuda.is_available():
+            return configured
+
+        try:
+            free_bytes, total_bytes = torch.cuda.mem_get_info()
+            free_gib = free_bytes / (1024 ** 3)
+            total_gib = total_bytes / (1024 ** 3)
+            desired_gib = configured * total_gib
+
+            if free_gib >= desired_gib:
+                # Enough memory for the configured utilization
+                self.log(
+                    f"GPU memory check: {free_gib:.2f}/{total_gib:.2f} GiB free, "
+                    f"configured utilization={configured} ({desired_gib:.2f} GiB) — OK"
+                )
+                return configured
+
+            # Not enough memory — clamp to what's available with 10% safety margin
+            safety_margin = 0.90
+            effective = (free_gib * safety_margin) / total_gib
+            # Ensure at least 0.05 to avoid vLLM refusing to load
+            effective = max(0.05, effective)
+
+            self.log(
+                f"GPU memory pressure: {free_gib:.2f}/{total_gib:.2f} GiB free, "
+                f"configured utilization={configured} ({desired_gib:.2f} GiB) exceeds free memory. "
+                f"Reducing to {effective:.3f} ({effective * total_gib:.2f} GiB)"
+            )
+            return effective
+
+        except Exception as e:
+            self.log(f"Could not check GPU memory ({e}), using configured value {configured}")
+            return configured
+
     def load_model(self) -> None:
         '''
            Load vLLM engine with cleanup and error handling steps.
@@ -219,17 +273,47 @@ class VLLMRolloutEngine:
                 print(f"Error deleting vllm_engine: {e}")
 
             self.vllm_engine = None
-            # memory cleanup
+
+            # Aggressive memory cleanup. PyTorch's CUDA allocator can hold
+            # onto freed memory (fragmentation), especially after hundreds of
+            # generate() calls. We need to force it to release everything
+            # before loading a new engine.
             gc.collect()
             try:
                 torch.cuda.empty_cache()
             except Exception:
                 pass
 
-            # more cleanup
+            # Force PyTorch to release ALL cached memory. This is more
+            # aggressive than empty_cache() which only releases unused blocks.
             try:
                 if torch.cuda.is_available():
                     torch.cuda.synchronize()
+                    # Reset peak memory stats to avoid misleading diagnostics
+                    torch.cuda.reset_peak_memory_stats()
+            except Exception:
+                pass
+
+            # Second round of GC + cache clearing. Some objects may only
+            # become collectible after the first gc.collect() pass.
+            gc.collect()
+            try:
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
+
+            # Log memory state after cleanup
+            try:
+                free_bytes, total_bytes = torch.cuda.mem_get_info()
+                alloc_gib = torch.cuda.memory_allocated() / (1024**3)
+                reserved_gib = torch.cuda.memory_reserved() / (1024**3)
+                free_gib = free_bytes / (1024**3)
+                self.log(
+                    f"Post-cleanup GPU memory: "
+                    f"free={free_gib:.2f} GiB, "
+                    f"allocated={alloc_gib:.2f} GiB, "
+                    f"reserved={reserved_gib:.2f} GiB"
+                )
             except Exception:
                 pass
 
@@ -238,14 +322,33 @@ class VLLMRolloutEngine:
         # This avoids subprocess GPU isolation issues when running under Ray.
         # (VLLM_USE_V1=0 is no longer recognized in vLLM >= 0.15; V1 is the only engine.)
         os.environ["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"
+
+        # Dynamically compute effective gpu_memory_utilization based on
+        # actual free GPU memory. This handles the case where DeepSpeed
+        # training engines hold residual memory on the same physical GPU.
+        effective_gpu_mem = self._compute_effective_gpu_memory_utilization()
+
+        # Limit max_model_len to reduce KV cache memory. The model's config
+        # may advertise a large context window (e.g. 32768) but rollout
+        # generation only needs prompt + max_tokens. We cap it to avoid
+        # allocating a huge KV cache that wastes limited GPU memory.
+        effective_max_model_len = min(
+            1024,  # tight cap — GSM8K/MATH responses are ~200 tokens
+            self.max_tokens * 2,  # 2x max generation length (was 4x)
+        )
+
         try:
             self.vllm_engine = LLM(model=self.model_path,
                                    trust_remote_code=self.trust_remote_code,
                                    tensor_parallel_size=self.tensor_parallel_size,
-                                   gpu_memory_utilization=self.gpu_memory_utilization,
+                                   gpu_memory_utilization=effective_gpu_mem,
                                    enforce_eager=True,
+                                   max_model_len=effective_max_model_len,
                                   )
-            self.log(f"Successfully loaded vLLM model from {self.model_path}")
+            self.log(
+                f"Successfully loaded vLLM model from {self.model_path} "
+                f"(gpu_mem_util={effective_gpu_mem:.3f}, max_model_len={effective_max_model_len})"
+            )
 
         except Exception as e:
             print(f"Failed to load vLLM model from {self.model_path}: {e}")
@@ -331,6 +434,28 @@ class VLLMRolloutEngine:
 
         assert self.vllm_engine is not None, f"{self.model_path} not loaded."
 
+        # Periodic memory cleanup to prevent GPU memory accumulation.
+        # Over hundreds of batches, small leaks in vLLM internals and CUDA
+        # allocator fragmentation can cause the worker to be OOM-killed.
+        #
+        # NOTE: We do NOT do a full engine rebuild here because PyTorch's
+        # CUDA allocator may have fragmented memory that prevents freeing
+        # enough contiguous space to reload the 14 GiB model. Instead, we
+        # do a lighter cleanup (gc + empty_cache) every N batches.
+        # Full engine restart between epochs is handled by the wrapper
+        # script (Strategy 1: process restart between epochs).
+        self._generate_call_count += 1
+        if (self._restart_every_n_calls > 0
+                and self._generate_call_count % self._restart_every_n_calls == 0):
+            self.log(
+                f"Periodic memory cleanup after {self._generate_call_count} generate() calls"
+            )
+            gc.collect()
+            try:
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
+
         # Strip metadata and decode multimodal data for vLLM
         metadata_list = [p.get("metadata") for p in prompts]
         vllm_prompts = _decode_multimodal(prompts)
@@ -343,22 +468,64 @@ class VLLMRolloutEngine:
 
         # generated_outputs has prompt_ids and other outputs
         # this works even if n_samples >= 1
+        #
+        # IMPORTANT: We extract all needed data from generated_outputs and then
+        # explicitly delete it. vLLM V1 output objects can hold references to
+        # internal engine state (KV cache entries, request metadata, scheduler
+        # state) that prevent garbage collection. Over hundreds of sequential
+        # generate() calls this causes the worker process to grow unboundedly
+        # and eventually get OOM-killed. Extracting raw data first and deleting
+        # the vLLM objects breaks these reference chains.
+        extracted_outputs = []
+        for data in generated_outputs:
+            prompt_token_ids = list(data.prompt_token_ids or [])
+            responses = []
+            for response in data.outputs:
+                # Deep-copy logprobs to break any references back to vLLM
+                # engine internals. Each entry is a dict mapping token_id to
+                # a Logprob object; we extract just the float logprob value.
+                raw_logprobs = response.logprobs
+                if raw_logprobs is not None:
+                    clean_logprobs = []
+                    for lp_dict in raw_logprobs:
+                        if lp_dict is None:
+                            clean_logprobs.append(None)
+                        else:
+                            clean_logprobs.append({
+                                k: float(v.logprob) if hasattr(v, "logprob") else float(v)
+                                for k, v in lp_dict.items()
+                            })
+                else:
+                    clean_logprobs = None
+                responses.append({
+                    "token_ids": list(response.token_ids),
+                    "finish_reason": getattr(response, "finish_reason", None),
+                    "stop_reason": getattr(response, "stop_reason", None),
+                    "text": getattr(response, "text", ""),
+                    "logprobs": clean_logprobs,
+                })
+            extracted_outputs.append({
+                "prompt_token_ids": prompt_token_ids,
+                "responses": responses,
+            })
+        del generated_outputs
+
         rollout_samples = []
-        for prompt_idx, data in enumerate(generated_outputs):
+        for prompt_idx, data in enumerate(extracted_outputs):
             group_samples = []
             group_stats   = {'rewards': [], 'lengths': []}
             prompt_mm_data = prompts[prompt_idx].get("multi_modal_data", None)
-            prompt_ids = list(data.prompt_token_ids or [])
+            prompt_ids = data["prompt_token_ids"]
             prompt_len = len(prompt_ids)
             if prompt_len == 0:
                 raise ValueError(f"No prompt token ids found in generated output: {data}")
 
             # process generated responses
-            for response in data.outputs:
-                response_ids = list(response.token_ids)
+            for response in data["responses"]:
+                response_ids = response["token_ids"]
                 response_len = len(response_ids)
-                finish_reason = getattr(response, "finish_reason", None)
-                stop_reason   = getattr(response, "stop_reason", None)
+                finish_reason = response["finish_reason"]
+                stop_reason   = response["stop_reason"]
 
                 # all have length [T] and token_aligned as described above
                 seq_len = prompt_len + response_len
@@ -377,7 +544,7 @@ class VLLMRolloutEngine:
 
                 # Build per-response metadata for reward function
                 resp_metadata = metadata_list[prompt_idx].copy() if metadata_list[prompt_idx] else {}
-                resp_metadata["response_text"] = getattr(response, "text", "")
+                resp_metadata["response_text"] = response["text"]
                 resp_metadata.setdefault("prompt_text", "")
 
                 # Score the response regardless of length (empty responses get negative reward)
@@ -389,12 +556,12 @@ class VLLMRolloutEngine:
                 group_stats['lengths'].append(len(response_ids))
 
                 if response_len > 0:
-                    if response.logprobs is None:
+                    if response["logprobs"] is None:
                         raise ValueError("response.logprobs is None. Check if SamplingParams(logprobs=1) is set.")
 
                     # token-aligned
                     token_masks[prompt_len:] = 1
-                    response_logprobs = extract_logprobs(response_ids, response.logprobs)
+                    response_logprobs = extract_logprobs(response_ids, response["logprobs"])
                     token_old_logprobs[prompt_len:] = response_logprobs
 
                     # pred-aligned
@@ -445,7 +612,7 @@ class VLLMRolloutEngine:
 
                     "response_ids": response_ids, # list[int]
                     "prompt_ids": prompt_ids, # list[int]
-                    "response_text": getattr(response, "text", ""),
+                    "response_text": response["text"],
                     "response_len": response_len,
 
                     # multimodal data (base64 encoded, or None)
@@ -459,6 +626,11 @@ class VLLMRolloutEngine:
                 eps_reward_norm=self.eps_reward_norm,
                 reward_broadcast=self.reward_broadcast)
             rollout_samples.extend(group_samples)
+
+        # Free extracted data and run GC to prevent memory growth across
+        # hundreds of sequential generate() calls in the same worker process.
+        del extracted_outputs
+        gc.collect()
 
         return rollout_samples
 

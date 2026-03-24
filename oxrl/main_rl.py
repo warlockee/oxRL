@@ -22,7 +22,7 @@ from oxrl.setup.engine_factory import get_algorithm_class, training_engine_setup
 from oxrl.setup.dataloader_factory import rollout_dataloader_setup
 from oxrl.loops.rollout_phase import collect_rollouts
 from oxrl.loops.train_phase import run_training_steps
-from oxrl.loops.checkpoint_phase import save_and_refresh
+from oxrl.loops.checkpoint_phase import save_and_refresh, reload_training_engines
 
 
 def main(config_file, experiment_id, log_level="INFO"):
@@ -43,6 +43,18 @@ def main(config_file, experiment_id, log_level="INFO"):
     logger.info("Initializing Ray cluster...")
     ray_engine, master_addr = setup_ray(ray_address=config.run.ray_address)
     logger.info(f"Ray initialized. Master address: {master_addr}")
+
+    # Validate GPU budget: warn if training + rollout exceeds available GPUs.
+    # The engine_factory handles this via fractional GPU allocation, but log
+    # the situation so users understand what is happening.
+    total_cluster_gpus = int(ray.cluster_resources().get("GPU", 0))
+    total_requested = training_gpus + rollout_gpus
+    if total_requested > total_cluster_gpus:
+        logger.warning(
+            f"GPU over-subscription: training_gpus={training_gpus} + rollout_gpus={rollout_gpus} "
+            f"= {total_requested} > {total_cluster_gpus} available GPUs. "
+            f"Rollout engines will colocate with training engines via fractional GPU allocation."
+        )
 
     # 3. Initialize training engine
     logger.info(f"Setting up training algorithm: {config.train.alg_name}")
@@ -119,6 +131,15 @@ def main(config_file, experiment_id, log_level="INFO"):
             raise ValueError("Replay buffer is empty")
 
         # Phase 2: Training
+        # Reload optimizer states to GPU before training (they are offloaded
+        # to CPU after the previous epoch's checkpoint+refresh phase to keep
+        # GPU memory free during rollout generation).
+        if epoch > 0:
+            reload_training_engines(
+                training_engine_runners, logger, epoch,
+                timeout_sec=getattr(config.run, 'ray_task_timeout_sec', 0),
+            )
+
         logger.info(f"[Epoch {epoch+1}] Starting training on {len(replay_buffer)} replay buffer samples...")
         train_start_time = time.time()
 

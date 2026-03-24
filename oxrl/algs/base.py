@@ -39,6 +39,28 @@ class BaseAlgorithm(ABC):
             "Falling back to disk-based checkpoint flow."
         )
 
+    def offload_to_cpu(self) -> bool:
+        """Offload optimizer states, gradients, and parameters to CPU.
+
+        Called before vLLM model refresh to free GPU memory for the rollout
+        engine. Returns True if offload succeeded.
+
+        Default implementation does nothing. Subclasses (GRPO, PPO) override
+        with DeepSpeed-aware logic.
+        """
+        return False
+
+    def reload_to_gpu(self) -> bool:
+        """Reload optimizer states, gradients, and parameters back to GPU.
+
+        Called after vLLM model refresh completes, before the next training
+        epoch begins. Returns True if reload succeeded.
+
+        Default implementation does nothing. Subclasses (GRPO, PPO) override
+        with DeepSpeed-aware logic.
+        """
+        return False
+
     # ------------------------------------------------------------------
     # VLM / multimodal helpers (shared by GRPO and PPO)
     # ------------------------------------------------------------------

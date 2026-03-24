@@ -416,6 +416,89 @@ class GRPO(BaseAlgorithm):
 
         return aggregated_metrics
 
+    def offload_to_cpu(self) -> bool:
+        """Offload DeepSpeed optimizer states, gradients, and cached memory to CPU.
+
+        This frees GPU memory so the vLLM rollout engine (a separate Ray actor
+        sharing the same physical GPU) can reload the updated model weights.
+
+        With ZeRO-3, each rank holds a partition of optimizer states and
+        parameters. We:
+        1. Zero out gradients (they're not needed between epochs)
+        2. Move optimizer state tensors to CPU
+        3. Flush the CUDA cache
+
+        The model parameters stay on GPU (ZeRO-3 manages them), but freeing
+        optimizer states alone recovers ~2x the parameter memory (Adam has 2
+        state tensors per parameter).
+        """
+        import gc
+        rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+        print(f"[Alg:{self.alg_name}][Rank {rank}] Offloading optimizer states to CPU...")
+
+        try:
+            # 1. Zero gradients to free gradient memory
+            self.policy_engine.zero_grad()
+
+            # 2. Offload optimizer state tensors to CPU
+            optimizer = self.policy_engine.optimizer
+            offloaded = 0
+            # DeepSpeed wraps the optimizer; access the base optimizer's state
+            base_optimizer = getattr(optimizer, 'optimizer', optimizer)
+            for state in base_optimizer.state.values():
+                for key, val in state.items():
+                    if isinstance(val, torch.Tensor) and val.is_cuda:
+                        state[key] = val.to('cpu', non_blocking=True)
+                        offloaded += 1
+
+            # 3. Synchronize and free cached memory
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            gc.collect()
+            torch.cuda.empty_cache()
+
+            if torch.cuda.is_available():
+                free_mem = torch.cuda.mem_get_info()[0] / (1024**3)
+                total_mem = torch.cuda.mem_get_info()[1] / (1024**3)
+                print(
+                    f"[Alg:{self.alg_name}][Rank {rank}] Offloaded {offloaded} optimizer tensors to CPU. "
+                    f"GPU memory: {free_mem:.2f}/{total_mem:.2f} GiB free"
+                )
+
+            return True
+        except Exception as e:
+            print(f"[Alg:{self.alg_name}][Rank {rank}] WARNING: offload_to_cpu failed: {e}")
+            return False
+
+    def reload_to_gpu(self) -> bool:
+        """Reload optimizer states back to GPU after vLLM refresh completes.
+
+        Moves all optimizer state tensors that were offloaded to CPU back to the
+        training device (GPU).
+        """
+        rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+        device = self.policy_engine.device
+        print(f"[Alg:{self.alg_name}][Rank {rank}] Reloading optimizer states to {device}...")
+
+        try:
+            optimizer = self.policy_engine.optimizer
+            base_optimizer = getattr(optimizer, 'optimizer', optimizer)
+            reloaded = 0
+            for state in base_optimizer.state.values():
+                for key, val in state.items():
+                    if isinstance(val, torch.Tensor) and val.device.type == 'cpu':
+                        state[key] = val.to(device, non_blocking=True)
+                        reloaded += 1
+
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+
+            print(f"[Alg:{self.alg_name}][Rank {rank}] Reloaded {reloaded} optimizer tensors to {device}")
+            return True
+        except Exception as e:
+            print(f"[Alg:{self.alg_name}][Rank {rank}] WARNING: reload_to_gpu failed: {e}")
+            return False
+
     def gather_state_dict(self):
         """Gather ZeRO-3 partitioned weights into a single state dict in memory.
 

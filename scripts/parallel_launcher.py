@@ -77,12 +77,21 @@ def find_jobs(
         is_rl = alg in RL_ALGS
         port = cfg.get("run", {}).get("ray_master_port", 29500)
 
+        if is_rl:
+            # RL jobs: read GPU allocation from config.
+            # Physical GPUs needed = training_gpus (rollout engines colocate
+            # via fractional Ray GPU allocation when needed).
+            training_gpus = cfg.get("run", {}).get("training_gpus", 2)
+            gpus_needed = training_gpus
+        else:
+            gpus_needed = 1
+
         jobs.append({
             "experiment_id": exp_id,
             "config_path": str(config_path),
             "algorithm": alg,
             "is_rl": is_rl,
-            "gpus_needed": 2 if is_rl else 1,
+            "gpus_needed": gpus_needed,
             "port": port,
         })
     return jobs

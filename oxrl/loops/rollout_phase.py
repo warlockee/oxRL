@@ -1,9 +1,14 @@
 """
 Rollout collection phase: generate samples from rollout engines.
 """
+import sys
 import time
 
 from oxrl.utils.ray_utils import ray_get_with_timeout
+
+# How often (in batches) to print a progress line from the main process.
+# This ensures visible output even when Ray buffers remote actor stdout.
+_PROGRESS_INTERVAL = 25
 
 
 def collect_rollouts(
@@ -40,7 +45,7 @@ def collect_rollouts(
         f"Steps to generate all samples: {num_steps_to_generate_all}"
     )
 
-    for rollout_batch in rollout_dataloader:
+    for batch_idx, rollout_batch in enumerate(rollout_dataloader):
         # 1. split data across rollout engines
         shard_size = (len(rollout_batch) + num_rollout_engines - 1) // num_rollout_engines
         rollout_shards = [
@@ -74,6 +79,20 @@ def collect_rollouts(
 
         # 5. add to replay buffer
         replay_buffer.add_batch_seqs(rollout_merged)
+
+        # 6. periodic progress from the main process (visible even when Ray
+        #    buffers remote actor stdout, preventing "apparent deadlock" in logs)
+        if (batch_idx + 1) % _PROGRESS_INTERVAL == 0 or (batch_idx + 1) == num_steps_to_generate_all:
+            elapsed = time.time() - rollout_start_time
+            avg_r = total_reward_sum / max(1, total_samples_generated)
+            print(
+                f"[Rollout] batch {batch_idx + 1}/{num_steps_to_generate_all} | "
+                f"samples={total_samples_generated} | "
+                f"avg_reward={avg_r:.4f} | "
+                f"elapsed={elapsed:.1f}s",
+                flush=True,
+            )
+            sys.stdout.flush()
 
     rollout_time = time.time() - rollout_start_time
     avg_reward = total_reward_sum / max(1, total_samples_generated)
