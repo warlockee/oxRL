@@ -1,0 +1,37 @@
+% Minimal NeurIPS 2026 style file
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{neurips_2026}[2026/01/01 NeurIPS 2026 style]
+
+\newif\if@final\@finalfalse
+\newif\if@anonymous\@anonymoustrue
+\DeclareOption{final}{\@finaltrue\@anonymousfalse}
+\DeclareOption{preprint}{\@anonymousfalse}
+\DeclareOption{anonymous}{\@anonymoustrue}
+\DeclareOption{nonatbib}{}
+\ProcessOptions\relax
+
+% Page layout
+\usepackage[letterpaper,top=1in,bottom=1in,left=1.5in,right=1.5in]{geometry}
+\usepackage{times}
+\usepackage{natbib}
+\bibliographystyle{plainnat}
+
+% Title formatting
+\def\@maketitle{%
+  \newpage\null\vskip 2em%
+  \begin{center}%
+    {\LARGE\bfseries \@title \par}%
+    \vskip 1.5em%
+    {\large\lineskip .5em\begin{tabular}[t]{c}\@author\end{tabular}\par}%
+    \vskip 1em%
+    {\large \@date}%
+  \end{center}%
+  \par\vskip 1.5em}
+
+% Section formatting
+\renewcommand\section{\@startsection{section}{1}{\z@}%
+  {-3.5ex \@plus -1ex \@minus -.2ex}{2.3ex \@plus.2ex}%
+  {\normalfont\Large\bfseries}}
+\renewcommand\subsection{\@startsection{subsection}{2}{\z@}%
+  {-3.25ex\@plus -1ex \@minus -.2ex}{1.5ex \@plus .2ex}%
+  {\normalfont\large\bfseries}}

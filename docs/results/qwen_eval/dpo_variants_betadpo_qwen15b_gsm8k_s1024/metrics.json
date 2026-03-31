@@ -1,0 +1,8 @@
+{
+  "experiment_id": "dpo_variants_betadpo_qwen15b_gsm8k_s1024",
+  "status": "completed",
+  "elapsed_seconds": 1228.25,
+  "gpus": [
+    0
+  ]
+}

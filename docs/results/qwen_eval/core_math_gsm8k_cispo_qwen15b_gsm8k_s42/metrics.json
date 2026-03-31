@@ -1,0 +1,7 @@
+{
+  "experiment_id": "core_math_gsm8k_cispo_qwen15b_gsm8k_s42",
+  "status": "completed",
+  "elapsed_seconds": 0,
+  "gpus": [],
+  "note": "Marker created retroactively - checkpoint exists but original launcher did not write marker"
+}

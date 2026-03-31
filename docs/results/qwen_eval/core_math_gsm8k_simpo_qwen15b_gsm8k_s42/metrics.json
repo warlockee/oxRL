@@ -1,0 +1,8 @@
+{
+  "experiment_id": "core_math_gsm8k_simpo_qwen15b_gsm8k_s42",
+  "status": "completed",
+  "elapsed_seconds": 805.67,
+  "gpus": [
+    2
+  ]
+}

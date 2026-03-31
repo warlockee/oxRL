@@ -1,0 +1,22 @@
+{
+  "model": "/home/ec2-user/efs/oxrl_archive/reviewer5_checkpoints/sft_gemma3_1b_gsm8k_s42/sft_gemma3_1b_gsm8k_s42/iter000003",
+  "timestamp": "2026-03-30T05:59:33",
+  "elapsed_seconds": 7421.49,
+  "seed": 42,
+  "limit": null,
+  "tasks": {
+    "gsm8k": {
+      "accuracy": 0.26914329037149354,
+      "metric_name": "exact_match,strict-match",
+      "num_fewshot": 8,
+      "stderr": null,
+      "raw": {
+        "alias": "gsm8k",
+        "exact_match,strict-match": 0.26914329037149354,
+        "exact_match_stderr,strict-match": 0.012216595457292732,
+        "exact_match,flexible-extract": 0.26838514025777105,
+        "exact_match_stderr,flexible-extract": 0.012205702688013671
+      }
+    }
+  }
+}

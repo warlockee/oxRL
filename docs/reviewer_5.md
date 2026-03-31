@@ -1,0 +1,31 @@
+Critical Weaknesses (Reasons for Rejection in Current Form)
+NeurIPS demands that empirical papers address generalizability, rule out alternative explanations, and close methodological loops—this paper falls short in four key areas, all of which are fixable with targeted experiments but are too significant to overlook for acceptance:
+1. Limited Generalizability to Other Model Architectures
+The study uses only Qwen 2.5 across all scales. The authors acknowledge this as a limitation but provide no evidence that their findings transfer to other dominant architectures (Llama 3, Mistral, Gemma, GPT-2/Neo). A core claim of the paper is that "initialization dominates algorithm choice" and "rankings invert across scale"—but these could be Qwen-specific artifacts (e.g., Qwen’s Instruct alignment may interact with preference methods uniquely). For a paper making field-wide claims, restricting to a single model family is a fatal gap for NeurIPS.
+2. Unresolved LoRA-Scale Confound at 7B
+The authors use full fine-tuning (FT) for ≤3B and LoRA for 7B—a necessary engineering choice, but the 2×2 factorial design (3B/7B × FT/LoRA) is undermined by a 3B floor effect (strict-match accuracy ≤18.35%) that makes LoRA vs. FT comparisons uninterpretable. The authors cannot definitively rule out that the 7B ranking inversion (SFT→DPO/SimPO) is driven by LoRA’s low-rank regularization (and algorithm-specific sensitivity to it) rather than model scale alone. This is a critical alternative explanation for the paper’s most striking finding—one that the current experiments do not resolve.
+3. No Evaluation of >7B Scales (the "Deployment Scale" for Industry)
+The authors recommend "validating at deployment scale" but only evaluate up to 7B—not the 13B/70B scales that are standard for real-world mathematical reasoning deployments (e.g., DeepSeekMath, Minerva). The DPO variant ranking inversion (1.5B→7B) suggests that rankings may invert again at >7B—making the 7B recommendations tentative at best. For a paper focused on practitioner guidance, ignoring deployment-scale models is a major oversight.
+4. Synthetic Preference Data: Unaddressed Limitations for Human Alignment
+The study uses model self-play synthetic preference data (scored by exact-match correctness) for mathematical reasoning—a valid choice for this task, but the authors do not address how their findings transfer to human preference data (the standard for alignment tasks like helpfulness/safety). The paper claims not to generalize to open-ended tasks, but it provides no exploratory analysis of whether the initialization/scale effects hold for even a small human preference dataset (e.g., UltraFeedback, OpenOrca). This limits the paper’s relevance to the broader RLHF/alignment community— a key audience for NeurIPS.
+5. Minor Methodological Gaps
+No LR Sweep Across All Algorithms at 7B: The authors perform a targeted LR ablation for SFT (ruling out catastrophic forgetting) but do not sweep LR for DPO/SimPO/IPO/KTO at 7B. A small LR sweep would confirm that the 7B rankings are not hyperparameter artifacts (a minor fix, but expected for NeurIPS).
+No Evaluation of Open-Ended Mathematical Reasoning: The study uses exact-match scoring for GSM8K/MATH—standard, but it does not evaluate open-ended reasoning quality (e.g., step-by-step coherence, error analysis) for top algorithms. This reinforces the "format compliance" finding but leaves unaddressed whether preference methods improve actual reasoning (beyond correct final answers).
+Additional Minor Concerns (Cosmetic/Clarity)
+Overemphasis on GSM8K: The paper’s core claims are based heavily on GSM8K, with MATH and general-domain benchmarks as secondary. A more balanced analysis (e.g., error analysis for MATH) would strengthen the "format compliance" argument.
+Dense Tables/Figures: Some tables (e.g., Table 8, 19) are overly dense and hard to parse; simplifying or splitting them would improve readability (a minor fix for a revise-resubmit).
+Infrastructure Details: The engineering fixes for online RL at 7B are buried in Section 5.7—moving this to a dedicated "Infrastructure" section would highlight this key contribution for readers.
+Revise-Resubmit Roadmap (Fixes to Secure Acceptance)
+This paper is extremely close to being a top NeurIPS acceptance—the following targeted experiments (all feasible with modest compute, per the authors’ cost breakdown) would resolve all critical weaknesses and make it a landmark contribution:
+1. Cross-Architecture Validation (Highest Priority)
+Evaluate the core 3 algorithms (SFT, DPO, SimPO) on one additional model family (e.g., Llama 3 7B) at 1.5B and 7B (LoRA/FT matching the Qwen design). This would confirm that initialization dominance and scale-dependent ranking inversions are not Qwen-specific—the single most important fix for generalizability.
+2. Resolve the LoRA-Scale Confound
+Run a small 7B full FT experiment (1 seed for SFT/DPO/SimPO) to test whether the ranking inversion (DPO/SimPO > SFT) holds with full FT (not just LoRA). Even a single seed would rule out LoRA as the primary driver of the 7B result and fix the factorial design gap.
+3. Deployment-Scale Mini-Evaluation
+Evaluate the core 3 algorithms (SFT, DPO, SimPO) on a 13B model (Qwen 2.5 13B, LoRA) with N=3 seeds. This would test whether the 7B rankings hold at deployment scale and provide updated practitioner guidance for real-world use cases.
+4. Human Preference Data Exploratory Analysis
+Run a small experiment (1.5B, N=3 seeds) on a human preference math dataset (e.g., MathFeedback, GSM8K human annotations) to test whether initialization/scale effects hold for human-curated preferences (vs. synthetic self-play). This would expand the paper’s relevance to the alignment community and address the synthetic data limitation.
+5. Minor Methodological Fixes
+Perform a small LR sweep (10⁻⁶, 5×10⁻⁶, 10⁻⁵) for DPO/SimPO at 7B (N=1 seed) to confirm hyperparameter robustness.
+Add error analysis for MATH (e.g., step-by-step error types for SFT vs. DPO) to strengthen the "format compliance vs. reasoning" argument.
+Simplify dense tables and move infrastructure engineering to a dedicated section for readability.

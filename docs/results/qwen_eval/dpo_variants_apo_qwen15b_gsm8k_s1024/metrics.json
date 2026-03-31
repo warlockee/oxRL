@@ -1,0 +1,8 @@
+{
+  "experiment_id": "dpo_variants_apo_qwen15b_gsm8k_s1024",
+  "status": "completed",
+  "elapsed_seconds": 1081.95,
+  "gpus": [
+    2
+  ]
+}

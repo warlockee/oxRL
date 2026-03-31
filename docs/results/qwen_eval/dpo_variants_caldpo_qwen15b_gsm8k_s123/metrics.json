@@ -1,0 +1,8 @@
+{
+  "experiment_id": "dpo_variants_caldpo_qwen15b_gsm8k_s123",
+  "status": "completed",
+  "elapsed_seconds": 1335.53,
+  "gpus": [
+    5
+  ]
+}
