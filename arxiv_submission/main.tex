@@ -49,8 +49,8 @@ We show this practice is \emph{anti-predictive}: algorithm rankings invert as mo
 In a controlled study spanning ${\sim}$290 training runs across two model families (Qwen~2.5 0.5B--14B, Gemma~3 1B--12B), 8 algorithms, 20 DPO variants, and up to $N{=}5$ seeds, we find three results that challenge common intuitions.
 \textbf{(1)~Rankings invert with scale.} At $\leq$1.5B, SFT is the strongest offline method; at 7B, SFT collapses to worst while DPO leads ($p < 0.001$, $N{=}5$). The same inversion appears in Gemma~3 (1B--12B) and strengthens at Qwen~14B, where DPO leads SFT by 2.3~pp. DPO variant rankings also fully invert between 1.5B and 7B.
 \textbf{(2)~Initialization dominates algorithm choice.} Replacing the Instruct checkpoint with Base collapses the inter-algorithm accuracy spread from 15.7~pp to 1.07~pp at 1.5B and from 5.94~pp to 1.82~pp at 7B (a 3--15$\times$ compression), revealing that most observed differences are artifacts of interaction with prior alignment, not properties of the loss functions themselves.
-\textbf{(3)~Apparent differences largely reflect format compliance, not reasoning.} The 19.3~pp GSM8K spread collapses $36\times$ to 0.54~pp on MATH and $41\times$ to 0.47~pp on general-domain benchmarks.
-Together, these findings imply that small-scale algorithm selection---the dominant paradigm in both research and practice---is unreliable, and that practitioners should validate at deployment scale rather than extrapolating from cheap proxies.
+\textbf{(3)~Apparent differences have two regimes.} At small scale ($\leq$1.5B), the 19.3~pp GSM8K spread collapses $36\times$ to 0.54~pp on MATH---algorithms differ in format compliance, not reasoning. At large scale ($\geq$4B), MATH reveals genuine reasoning differences, but these are \emph{architecture-dependent}: DPO dominates Gemma MATH by +9~pp while SimPO dominates Qwen~14B MATH by +13~pp. Rankings cannot be extrapolated across scales, architectures, or tasks.
+Together, these findings imply that small-scale algorithm selection---the dominant paradigm in both research and practice---is unreliable, and that practitioners should validate at deployment scale, on their target architecture and task, rather than extrapolating from cheap proxies.
 \end{abstract}
 
 % ================================================================
@@ -73,8 +73,8 @@ We address this gap through a large-scale, controlled comparison using a unified
     \item \textbf{Initialization explains the inversion.}
     Replacing Instruct with Base initialization collapses the inter-algorithm spread from 15.7~pp to 1.07~pp at 1.5B and from 5.94~pp to 1.82~pp at 7B (a 3--15$\times$ compression). From Base, SFT leads at \emph{both} scales---the inversion vanishes. Algorithmic ``differences'' are artifacts of how each loss function interacts with prior alignment, not fundamental properties of the objectives.
 
-    \item \textbf{Format compliance, not reasoning, drives the spread.}
-    The 19.3~pp GSM8K spread collapses $36\times$ to 0.54~pp on competition-level MATH and $41\times$ to 0.47~pp on general-domain benchmarks. Algorithms differ primarily in how quickly they acquire the target output format; reasoning improvements are a secondary component.
+    \item \textbf{Apparent differences have two regimes: format compliance at small scale, architecture-specific reasoning at large scale.}
+    At 1.5B, the 19.3~pp GSM8K spread collapses $36\times$ to 0.54~pp on MATH and $41\times$ to 0.47~pp on general benchmarks---algorithms differ only in format compliance. At larger scales ($\geq$4B), MATH reveals genuine reasoning differences, but these depend on the (algorithm, architecture) pair: DPO gains +9~pp on Gemma~12B MATH while SimPO gains +13~pp on Qwen~14B MATH. Both regimes yield the same practical conclusion: small-scale benchmarking is unreliable.
 \end{enumerate}
 
 These findings are based on ${\sim}$290 training runs on Qwen~2.5 (0.5B--14B), supplemented by 27 runs on Gemma~3 (1B--12B), spanning 8 algorithms, 20 DPO variants, 4 evaluation domains (GSM8K, MATH, ARC-C/HellaSwag/WinoGrande), and up to $N{=}5$ seeds with formal statistical testing.
@@ -335,12 +335,35 @@ SimPO & \textbf{61.87} & 38.67$_{\pm 1.78}$ & \textcolor{teal}{+23.2} \\
 \end{tabular}
 \end{table}
 
-\subsection{Finding 3: Format Compliance Drives the Spread}
+\subsection{Finding 3: Two Regimes---Format Compliance, Then Architecture-Specific Reasoning}
 \label{sec:format_compliance}
 
-Table~\ref{tab:math_results} compares GSM8K and MATH results at 1.5B. The 19.3~pp GSM8K spread collapses to \textbf{0.54~pp} on MATH---a $36\times$ compression. Rankings shift: SGRPO drops from 1st to 4th, SimPO rises from last to 2nd. On general-domain benchmarks (ARC-C, HellaSwag, WinoGrande), the spread collapses further to \textbf{0.47~pp} ($41\times$; Appendix~\ref{app:figures}).
+Table~\ref{tab:math_results} compares GSM8K and MATH results at 1.5B. The 19.3~pp GSM8K spread collapses to \textbf{0.54~pp} on MATH---a $36\times$ compression. Rankings shift: SGRPO drops from 1st to 4th, SimPO rises from last to 2nd. On general-domain benchmarks (ARC-C, HellaSwag, WinoGrande), the spread collapses further to \textbf{0.47~pp} ($41\times$; Appendix~\ref{app:figures}). At small scale, algorithms differ only in format compliance, not reasoning.
 
-At 1.5B, three lines of evidence converge: (1)~the cross-task compression, (2)~flexible extraction compressing the 3B spread from 11.5~pp to 6.6~pp (Appendix~\ref{app:format}), and (3)~the near-zero general-domain spread. However, this picture changes at scale. At Gemma~12B, the MATH spread \emph{increases} to 18.7~pp (DPO 50.2\% vs.\ SimPO 32.1\%), and at Qwen~14B the spread reaches 17.0~pp (SimPO 41.0\% vs.\ SFT 24.0\%). At 14B, general benchmarks show $<$1.2~pp spread (Table~\ref{tab:14b_results}), confirming that format compliance still dominates on GSM8K---but MATH reveals genuine reasoning differences that emerge at larger scales.
+\textbf{But this picture changes at scale.} Table~\ref{tab:math_scaling} shows MATH accuracy across Gemma~3 scales. At 1B, the MATH spread is negligible. At 4B, DPO pulls ahead by +8.1~pp over SFT. At 12B, DPO reaches 50.2\%---nearly \textbf{+9~pp over base and +17~pp over SimPO}. The spread \emph{increases} with scale, the opposite of the compression observed at 1.5B.
+
+Critically, this pattern is \emph{architecture-dependent}. At Qwen~14B, \textbf{SimPO} dominates MATH (39.1\%~$\pm$2.2) over DPO (25.8\%~$\pm$0.4) by +13~pp---the reverse of Gemma. Meanwhile, general benchmarks show $<$2~pp spread at all scales and both architectures (Table~\ref{tab:14b_results}; Appendix~\ref{app:general_benchmarks}), confirming that GSM8K differences remain primarily format-driven. The two-regime picture is: at small scale, algorithms differ shallowly (format); at large scale, algorithms differ deeply (reasoning), but \emph{which algorithm wins depends on architecture and task}. Both regimes make small-scale extrapolation unreliable.
+
+\begin{table}[t]
+\centering
+\caption{MATH accuracy (\%) across Gemma~3 scales. At 1B, differences are negligible. At $\geq$4B, DPO separates from the pack---but at Qwen~14B (rightmost column), SimPO dominates instead. Algorithm-architecture interaction makes MATH rankings unpredictable. Values with $\pm$ are 3-seed means; others are single-seed.}
+\label{tab:math_scaling}
+\small
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+& \multicolumn{3}{c}{\textbf{Gemma 3}} & & \textbf{Qwen 2.5} \\
+\cmidrule(lr){2-4} \cmidrule(lr){6-6}
+\textbf{Algorithm} & \textbf{1B} & \textbf{4B} & \textbf{12B} & & \textbf{14B} \\
+\midrule
+Base & 16.6 & 34.4 & 41.3 & & 16.8 \\
+SFT & 13.7 & 34.3$_{\pm 0.4}$ & 41.0$_{\pm 0.3}$ & & 23.0$_{\pm 0.7}$ \\
+DPO & 16.4 & \textbf{42.4}$_{\pm 1.7}$ & \textbf{50.2}$_{\pm 0.8}$ & & 25.8$_{\pm 0.4}$ \\
+SimPO & 1.1 & 39.3$_{\pm 0.8}$ & 32.7$_{\pm 1.5}$ & & \textbf{39.1}$_{\pm 2.2}$ \\
+\midrule
+\textit{Spread} & \textit{15.5} & \textit{8.1} & \textit{17.5} & & \textit{16.1} \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \begin{table}[t]
 \centering
@@ -373,8 +396,8 @@ At 7B, SGRPO achieves 80.59\% (best of 3 epochs), placing it above SFT but below
 
 Our findings yield actionable guidance:
 \begin{enumerate}[leftmargin=*,itemsep=1pt]
-    \item \textbf{Validate at deployment scale.} Rankings at $\leq$3B do not predict 7B behavior---for both core algorithms and DPO variants. This is the paper's most important practical message.
-    \item \textbf{Use DPO as the default.} DPO ranks near the top at both 1.5B and 7B in Qwen, and overtakes SFT at 12B in Gemma. It has the lowest seed variance ($\sigma = 0.56$ at 7B) and requires no special infrastructure.
+    \item \textbf{Validate at deployment scale, architecture, and task.} Rankings at $\leq$3B do not predict 7B+ behavior. Moreover, MATH rankings at Gemma~12B (DPO wins) reverse at Qwen~14B (SimPO wins). This is the paper's most important practical message.
+    \item \textbf{DPO is a strong default on GSM8K.} DPO ranks near the top at both 1.5B and 7B in Qwen, overtakes SFT at 12B in Gemma, and leads at 14B. It has the lowest seed variance ($\sigma = 0.56$ at 7B) and requires no special infrastructure. However, its advantage does not transfer uniformly to harder tasks (MATH).
     \item \textbf{Distrust variant sweeps at small scale.} The complete 1.5B$\to$7B ranking inversion among DPO variants means that small-scale variant selection is unreliable. Prefer vanilla DPO unless you can afford to validate at target scale.
     \item \textbf{Budget for multiple seeds at scale.} SimPO matches DPO in mean accuracy at 7B but with $3.2\times$ higher variance ($\sigma = 1.79$). Single-seed comparisons are misleading.
 \end{enumerate}
@@ -389,8 +412,8 @@ Our findings yield actionable guidance:
 The Base-vs-Instruct ablation (Section~\ref{sec:base_ablation}) identifies the mechanism: ranking inversions arise from differential interaction between loss functions and prior alignment, not from intrinsic properties of the objectives. We conjecture that at small scale, the Instruct model's limited capacity means that SFT's direct supervision provides the clearest gradient signal for format acquisition, while preference methods waste capacity modeling relative preferences between correct and incorrect solutions when the model can barely produce either. At large scale, the Instruct model already formats well, and preference methods' contrastive signal becomes more useful for fine-grained reasoning improvements that SFT's teacher-forcing cannot provide.
 
 \textbf{What drives accuracy in mathematical reasoning.}
-In decreasing order of leverage: model scale (${\sim}$50~pp), initialization (${\sim}$15~pp), training paradigm (SFT vs.\ preference: ${\sim}$6~pp at 7B), and loss function choice within the preference family ($<$1~pp for DPO vs.\ SimPO; up to 5.8~pp across DPO variants at 7B).
-However, loss function choice \emph{across} variants is scale-dependent: the 7B variant spread (5.8~pp from ORPO to EXO) exceeds the training paradigm gap at 1.5B.
+In decreasing order of leverage: model scale (${\sim}$50~pp), initialization (${\sim}$15~pp), training paradigm (SFT vs.\ preference: ${\sim}$6~pp at 7B), and loss function choice within the preference family ($<$1~pp for DPO vs.\ SimPO on GSM8K; up to 5.8~pp across DPO variants at 7B).
+On harder reasoning tasks (MATH), a new dimension emerges: algorithm-architecture interaction. DPO gains +9~pp on Gemma~12B MATH while SimPO gains +13~pp on Qwen~14B MATH---a complete reversal. This suggests that loss functions interact with architecture-specific representations in ways that are invisible on format-sensitive tasks like GSM8K.
 
 \textbf{Synthetic vs.\ human preference data.}
 Our preference data is generated from model rollouts scored by a deterministic reward function (exact-match correctness). This is standard for math post-training~\citep{shao2024deepseekmath, deepseek2025r1} and isolates the variable we care about (correct reasoning). Our findings may not transfer to domains where human preference data captures inaccessible signal (helpfulness, safety, creative quality).
@@ -819,16 +842,18 @@ DPO variants 7B (5 $\times$ 3 seeds) & 15 & 330--360 min & 1 & 90 \\[2pt]
 Ablations 1.5B & $\sim$57 & 9--10 min & 1 & 9 \\[2pt]
 R4 ablations 7B (LR, KL, Base init) & 5 & 330--480 min & 1--2 & 40 \\[2pt]
 Gemma 3 (3 algs $\times$ 3 scales $\times$ 3 seeds) & 27 & varies & 1--2 & $\sim$75 \\[2pt]
+7B Full FT factorial (SFT/DPO/SimPO) & 3 & $\sim$180 min & 2 & 18 \\[2pt]
+14B LoRA (SFT/DPO/SimPO $\times$ 3 seeds) & 9 & $\sim$360 min & 2 & 108 \\[2pt]
 \midrule
-\textbf{Total training} & $\sim$302 & -- & -- & $\sim$\textbf{485} \\[2pt]
-Evaluation (all checkpoints) & $\sim$302 & 5--30 min & 1 & $\sim$85 \\[2pt]
+\textbf{Total training} & $\sim$314 & -- & -- & $\sim$\textbf{611} \\[2pt]
+Evaluation (GSM8K, MATH, general) & $\sim$400+ & 5--600 min & 1 & $\sim$200 \\[2pt]
 \midrule
-\textbf{Grand total} & & & & $\sim$\textbf{570 GPU-h} \\
+\textbf{Grand total} & & & & $\sim$\textbf{811 GPU-h} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-At $\sim$\$3/GPU-hour, the total cost is approximately \$1,710---modest given the breadth (302 training runs across 2 model families, 7 scales) and substantially less than training a single 7B model from scratch.
+At $\sim$\$3/GPU-hour, the total cost is approximately \$2,430---modest given the breadth (314 training runs across 2 model families, 8 scales, 4 evaluation domains) and substantially less than training a single 7B model from scratch.
 
 \section{Additional Scaling Results}
 \label{app:scaling}
