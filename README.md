@@ -2,9 +2,9 @@
   <img src="assets/logo.png" alt="oxRL" width="200">
 </p>
 
-<h1 align="center">An Claude-friendly framework for any post-training</h1>
+<h1 align="center">Self-healing post-training for any LLM</h1>
 
-<p align="center">A lightweight post-training framework for LLMs and VLMs. Maximizing developer speed. Scales to billions of parameters with DeepSpeed, vLLM, and Ray.</p>
+<p align="center">A lightweight, self-healing post-training framework for LLMs and VLMs. Failures are auto-diagnosed, auto-fixed, and auto-restarted. Scales to billions of parameters with DeepSpeed, vLLM, and Ray.</p>
 
 <p align="center">
   <a href="https://pypi.org/project/oxrl/"><img src="https://img.shields.io/pypi/v/oxrl?color=blue" alt="PyPI"></a>
@@ -123,6 +123,41 @@ These models have been explicitly verified through our automated onboarding pipe
 │  oxrl/datasets/   HF loaders   │  oxrl/utils/      Setup + Logs  │
 └──────────────────────────────────────────────────────────────────┘
 ```
+
+## Self-Healing Training
+
+oxRL is a **self-healing** framework. When a training run fails, it doesn't just crash — it diagnoses, fixes, and restarts automatically.
+
+```
+oxrl train --model Qwen/Qwen2.5-7B-Instruct --task math
+  │
+  ├── Training Process
+  │     writes → train.log (continuously)
+  │
+  └── Guardian Process (auto-spawned)
+        │  MONITOR: tail logs, check PID, check disk
+        │  ON FAILURE:
+        │    1. Classify → bugfixer.classify_failure()
+        │    2. Known fix? → apply config patch → restart
+        │    3. Unknown? → web search → try fix → restart
+        │    4. Still broken after 3 attempts? → file GitHub issue
+        └── writes → guardian.log
+```
+
+The self-healing pipeline handles 8 failure classes automatically:
+
+| Failure | Auto-Fix |
+|---|---|
+| **OOM** | Reduce batch size, enable gradient checkpointing |
+| **Chat template missing** | Inject default template |
+| **vLLM load failure** | Fall back to HF backend |
+| **Reward stuck at 0** | Adjust reward scaling, check data |
+| **NaN loss** | Lower LR, check data normalization |
+| **DeepSpeed timeout** | Adjust timeout, reduce world size |
+| **Pad token error** | Set pad_token = eos_token |
+| **Config validation** | Auto-correct Pydantic schema mismatches |
+
+After 3 failed fix attempts, the guardian files a structured GitHub issue with full diagnostics (requires `GITHUB_TOKEN`).
 
 ## RL Training Workflow
 
@@ -293,7 +328,7 @@ oxRL/
 
 **Robust Environment Handling.** oxRL is designed to work even in constrained environments. It automatically handles common CUDA/DeepSpeed mismatches by providing actionable warnings instead of fatal crashes.
 
-**Autonomous Bug Reporting.** On framework failure, oxRL provides structured diagnostic signals for AI agents to automatically generate and submit GitHub issues (requires `GITHUB_TOKEN` environment variable).
+**Self-Healing Training.** The guardian process monitors training in real-time, classifies failures across 8 categories, applies automated fixes (config patches, hyperparameter adjustments), and restarts — no babysitting. Unresolvable failures are filed as structured GitHub issues automatically (requires `GITHUB_TOKEN`).
 
 **LoRA-first for 7B+**. We default to LoRA for larger models to enable high-quality research on consumer-grade and restricted high-end hardware.
 
