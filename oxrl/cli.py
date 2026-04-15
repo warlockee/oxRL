@@ -189,7 +189,18 @@ def main():
     report_parser.add_argument("--model", type=str, help="Model ID that failed")
     report_parser.add_argument("--log", type=str, help="Path to the failure log")
     report_parser.add_argument("--submit", action="store_true", help="Automatically submit to GitHub (requires GITHUB_TOKEN)")
-    
+
+    submit_parser = subparsers.add_parser("submit", help="NeurIPS submission compliance toolkit")
+    submit_parser.add_argument("submit_command", nargs="?", default="audit",
+                              choices=["check", "croissant", "readme", "audit"],
+                              help="Subcommand: check, croissant, readme, audit (default: audit)")
+    submit_parser.add_argument("--paper", type=str, help="Path to main .tex file")
+    submit_parser.add_argument("--readme", type=str, help="Path to README.md")
+    submit_parser.add_argument("--croissant", type=str, help="Path to Croissant JSON file")
+    submit_parser.add_argument("--dataset", type=str, help="HuggingFace dataset ID for Croissant generation")
+    submit_parser.add_argument("--output", type=str, help="Output path for generated files")
+    submit_parser.add_argument("--hf-token", type=str, default=os.environ.get("HF_TOKEN"), help="HuggingFace token")
+
     args = parser.parse_args()
     
     prompt_star()
@@ -224,6 +235,24 @@ def main():
                 print(f"[OK] Issue submitted: {result.get('url', result.get('info'))}")
             else:
                 print(f"[ERROR] Submission failed: {result['error']}")
+    elif args.command == "submit":
+        from oxrl.submission.run_submit import main as submit_main
+        # Forward to the submission module with reconstructed argv.
+        submit_argv = [args.submit_command or "audit"]
+        if args.paper:
+            submit_argv.extend(["--paper", args.paper])
+        if args.readme:
+            submit_argv.extend(["--readme", args.readme])
+        if args.croissant:
+            submit_argv.extend(["--croissant", args.croissant])
+        if args.dataset:
+            submit_argv.extend(["--dataset", args.dataset])
+        if args.output:
+            submit_argv.extend(["--output", args.output])
+        if args.hf_token:
+            submit_argv.extend(["--hf-token", args.hf_token])
+        sys.argv = ["oxrl submit"] + submit_argv
+        submit_main()
     else:
         parser.print_help()
 

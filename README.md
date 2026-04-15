@@ -358,6 +358,100 @@ If and when agentic multi-turn RL with tool use becomes the dominant training pa
 
 ---
 
+## Reproducing Paper Results (NeurIPS 2026)
+
+The paper *"Do Post-Training Algorithms Actually Differ?"* reports ~350 training runs across Qwen 2.5 (0.5B–14B) and Gemma 3 (1B–12B). Below are the key results and commands to reproduce them.
+
+### Key Result: GSM8K Accuracy (%) — Qwen 2.5
+
+| Algorithm | 0.5B | 1.5B (3 seeds) | 3B (full FT) | 7B (LoRA, 5 seeds) |
+|:---|:---:|:---:|:---:|:---:|
+| Self-Play SFT | 33.97 | 54.36 ± 0.59 | **55.70** ± 1.09 | 77.38 ± 1.11 |
+| DPO | 33.97 | 49.08 ± 0.61 | 34.55 ± 4.52 | **83.38** ± 0.56 |
+| SimPO | 26.08 | 38.67 ± 1.78 | — | 83.32 ± 1.79 |
+| IPO | **34.50** | 52.24 ± 0.22 | — | 80.39 ± 0.92 |
+| KTO | 33.81 | 51.15 ± 1.77 | — | 80.24 ± 0.16 |
+| SGRPO | 32.45 | **58.00** ± 0.57 | 8.11 | 80.59 |
+
+The central finding: Self-Play SFT leads at ≤3B but inverts to worst at 7B, where DPO dominates.
+
+### Cross-Architecture Validation: GSM8K (%) — Gemma 3
+
+| Algorithm | 1B | 12B (LoRA) |
+|:---|:---:|:---:|
+| Self-Play SFT | **26.7** | 86.7 ± 0.29 |
+| DPO | 21.5 | **87.4** ± 0.26 |
+| SimPO | 4.1 | 75.1 ± 4.88 |
+
+### Training Commands
+
+```bash
+# Step 1: Generate self-play data (N=32 rollouts per prompt)
+# Data is auto-generated per model scale; pre-generated data available on HuggingFace
+# See: https://huggingface.co/datasets/warlockee/oxrl-nips-2026
+
+# Step 2: Train — Self-Play SFT at 1.5B (full fine-tuning)
+oxrl train --model Qwen/Qwen2.5-1.5B-Instruct --task math --alg sft --epochs 3
+
+# Step 2: Train — DPO at 7B (LoRA)
+oxrl train --model Qwen/Qwen2.5-7B-Instruct --task math --alg dpo --epochs 3
+
+# Step 2: Train — SimPO at 7B (LoRA)
+oxrl train --model Qwen/Qwen2.5-7B-Instruct --task math --alg simpo --epochs 3
+
+# Step 2: Train — SGRPO (online RL) at 1.5B
+oxrl train --model Qwen/Qwen2.5-1.5B-Instruct --task math --alg sgrpo --epochs 3
+```
+
+### Evaluation
+
+```bash
+# Evaluate a checkpoint on GSM8K (exact-match, greedy decoding)
+python -m oxrl.eval.run_eval \
+    --checkpoint /path/to/checkpoint \
+    --tasks gsm8k \
+    --output-dir ./results/eval
+
+# Evaluate on MATH (4-shot)
+python -m oxrl.eval.run_eval \
+    --checkpoint /path/to/checkpoint \
+    --tasks math \
+    --output-dir ./results/eval
+
+# Batch evaluate all checkpoints
+python -m oxrl.eval.run_eval \
+    --checkpoint-dir /path/to/all/checkpoints \
+    --tasks gsm8k,math \
+    --output-dir ./results/eval
+```
+
+### Pre-trained Checkpoints
+
+All trained checkpoints from the paper are available on HuggingFace:
+
+| Checkpoint | Models |
+|:---|:---|
+| [oxrl-nips-2026-ckpt-qwen2.5-0.5b](https://huggingface.co/warlockee/oxrl-nips-2026-ckpt-qwen2.5-0.5b) | Qwen 2.5 0.5B — SFT, DPO, SimPO, IPO, KTO, SGRPO |
+| [oxrl-nips-2026-ckpt-qwen2.5-1.5b](https://huggingface.co/warlockee/oxrl-nips-2026-ckpt-qwen2.5-1.5b) | Qwen 2.5 1.5B — all algorithms, multi-seed |
+| [oxrl-nips-2026-ckpt-qwen2.5-3b](https://huggingface.co/warlockee/oxrl-nips-2026-ckpt-qwen2.5-3b) | Qwen 2.5 3B — SFT, DPO, SGRPO + LR sweeps |
+| [oxrl-nips-2026-ckpt-qwen2.5-7b](https://huggingface.co/warlockee/oxrl-nips-2026-ckpt-qwen2.5-7b) | Qwen 2.5 7B — all algorithms, 5-seed |
+| [oxrl-nips-2026-ckpt-qwen2.5-14b](https://huggingface.co/warlockee/oxrl-nips-2026-ckpt-qwen2.5-14b) | Qwen 2.5 14B — SFT, DPO, SimPO |
+| [oxrl-nips-2026-ckpt-gemma3-1b](https://huggingface.co/warlockee/oxrl-nips-2026-ckpt-gemma3-1b) | Gemma 3 1B — SFT, DPO, SimPO |
+| [oxrl-nips-2026-ckpt-gemma3-4b](https://huggingface.co/warlockee/oxrl-nips-2026-ckpt-gemma3-4b) | Gemma 3 4B — SFT, DPO, SimPO |
+| [oxrl-nips-2026-ckpt-gemma3-12b](https://huggingface.co/warlockee/oxrl-nips-2026-ckpt-gemma3-12b) | Gemma 3 12B — SFT, DPO, SimPO |
+
+### Datasets
+
+| Dataset | Description |
+|:---|:---|
+| [oxrl-nips-2026](https://huggingface.co/datasets/warlockee/oxrl-nips-2026) | Self-play SFT, preference, and prompt-only data for all model scales |
+
+### Hardware
+
+All experiments were run on NVIDIA H100 80GB GPUs. Full fine-tuning at ≤3B uses a single GPU; LoRA at ≥7B uses a single GPU. SGRPO (online RL) uses Ray for rollout orchestration. Total compute: ~1,580 H100 GPU-hours.
+
+---
+
 ## Citation
 
 If you find oxRL useful in your research, please cite our paper:
