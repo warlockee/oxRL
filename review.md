@@ -34,7 +34,7 @@ The framing as a scaling-law study is genuinely novel for the post-training lite
 
 ## 2. Overall assessment
 
-**Recommendation: Weak Accept (5/10) → Borderline Reject (4/10) depending on author response.**
+**Recommendation: Accept (7/10) after the author response folded M1–M8 inline; initial assessment was Weak Accept (5/10).**
 
 The paper makes an interesting and potentially important empirical claim, with multi-architecture replication that gives the central finding more weight than typical single-family ablations. However, several claims overstate what the data supports, the codebase release does not yet substantiate the headline ~350-run figure, and a number of math/exposition details need tightening. None of these are individually fatal; together they make the paper currently below the bar for a confident accept. With a careful revision and a credible reproducibility package, this could reach Strong Accept.
 
