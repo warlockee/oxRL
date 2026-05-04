@@ -5,13 +5,15 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-#latex 
+#latex
 *.aux
 *.synctex.gz
 *.pdf
 *.bib
 *.log
 *.out
+!arxiv_submission/figures/*.pdf
+!docs/figures/*.pdf
 
 # C extensions
 *.so
