@@ -117,10 +117,13 @@ Our framework provides a single codebase where all 51 algorithms share identical
 Each algorithm implements a \texttt{BaseAlgorithm} interface requiring only the loss function, ensuring the \emph{only} difference between runs is the loss computation.
 
 We organize the algorithms into four families:
-\textbf{(1)~SFT;} \textbf{(2)~Online RL} (PPO, GRPO with three loss variants);
+\textbf{(1)~SFT;} \textbf{(2)~Online RL} (PPO, and GRPO with three loss variants: SGRPO, GSPO, CISPO);
 \textbf{(3)~Offline preference} (DPO~\citep{rafailov2023direct}, IPO~\citep{azar2024general}, SimPO~\citep{meng2024simpo}, KTO~\citep{ethayarajh2024kto}, and 16 additional variants);
 \textbf{(4)~Hybrid} (ORPO~\citep{hong2024orpo}, Online DPO, SPIN~\citep{chen2024spin}).
 Our 20-variant taxonomy (Table~\ref{tab:dpo_taxonomy} in Appendix~\ref{app:dpo_full}) categorizes modifications along axes including divergence measure, reference model usage, and weighting schemes.
+
+\textbf{GRPO loss variants.} The three GRPO variants differ in how the importance ratio between current and behavior policies is aggregated and clipped, which controls the credit-assignment granularity and the stability of on-policy updates:
+\textbf{SGRPO} applies a token-level clipped surrogate---the per-token importance ratio is clipped to $[1{-}\epsilon_{\text{low}}, 1{+}\epsilon_{\text{high}}]$ before being multiplied by the group-normalized advantage, equivalent to PPO's policy loss without a critic. This is our default for dense models and serves as the GRPO representative throughout the paper. \textbf{GSPO} aggregates the importance ratio at the sequence level (one ratio per response) rather than per token; this absorbs per-token log-probability drift between the rollout engine (vLLM) and the trainer (HF/DeepSpeed), making it preferable for MoE models where expert-routing divergence amplifies token-level noise. \textbf{CISPO} uses the clipped ratio as a detached weight applied to the log-probability rather than as a multiplicative factor, yielding a more conservative update that we include as a stability fallback. Unless otherwise noted, ``online RL'' results in the main tables refer to SGRPO; GSPO and CISPO are reported as ablations in Appendix~\ref{app:scaling}.
 
 \subsection{Evaluation Protocol}
 \label{sec:eval_protocol}
@@ -396,7 +399,7 @@ DPO & 26.50 & 49.08$_{\pm 0.61}$ & $\downarrow$ (4th $\to$ 5th) \\
 \subsection{Online RL vs.\ Offline Preference}
 \label{sec:online_vs_offline}
 
-SGRPO (online RL) leads at 1.5B ($58.0\% \pm 0.57$, +3.6~pp over SFT) at ${\sim}6\times$ the compute cost.
+\textbf{SGRPO setup.} As defined in Section~\ref{sec:framework}, SGRPO is the token-level clipped-surrogate variant of GRPO~\citep{shao2024deepseekmath}: for each prompt we sample a group of $n{=}4$ responses from the current policy with vLLM, score each via exact-match correctness on GSM8K, compute group-normalized advantages, and update the policy with a per-token importance-ratio clip $\epsilon = 0.2$ (no critic, no value head). The reference KL coefficient is $\lambda_{\text{KL}} = 0$ by default following the DeepSeekMath recipe; a small KL ablation is provided in Appendix~\ref{app:kl_ablation}. SGRPO (online RL) leads at 1.5B ($58.0\% \pm 0.57$, +3.6~pp over SFT) at ${\sim}6\times$ the compute cost.
 At 7B, SGRPO achieves 80.59\% (best of 3 epochs), placing it above SFT but below DPO/SimPO. Adding KL regularization ($\lambda_{\text{KL}} = 0.01$) yields only +0.15~pp (Appendix~\ref{app:kl_ablation}), confirming that the online--offline gap is genuine rather than a regularization artifact. \textbf{Caveat:} SGRPO uses the same effective batch size (8 prompts) and fixed 3-epoch schedule as offline methods; online RL typically benefits from larger batches and dynamic rollout budgets, so our SGRPO results may underestimate online RL's true ceiling. SGRPO was not evaluated at 12B or 14B due to its ${\sim}6\times$ compute cost. Token-level SGRPO outperforms sentence-level GSPO by 12--18~pp; GSPO and CISPO results are in Appendix~\ref{app:scaling}.\footnote{GSPO achieves 39.58\% at 1.5B; CISPO fails catastrophically (5.23\% at 1.5B, 0.15\% at 0.5B).}
 
 \subsection{Fixed-Dataset Control: Disentangling Data Quality from Scale}
