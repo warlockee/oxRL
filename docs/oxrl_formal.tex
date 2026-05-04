@@ -58,40 +58,40 @@ Together, these findings imply that small-scale algorithm selection is unreliabl
 
 \begin{figure}[h]
 \centering
-\begin{tikzpicture}[x=1.05cm, y=0.07cm]
-  % axes
+\begin{tikzpicture}[x=1.05cm, y=0.065cm]
+  % axes — y origin at GSM8K=20 so SimPO 0.5B (=26.08) is on-chart
   \draw[->, thick] (-0.25, 0) -- (5.7, 0) node[right, font=\small] {model size};
-  \draw[->, thick] (-0.25, 0) -- (-0.25, 70) node[above, font=\small] {GSM8K \%};
-  % y ticks
-  \foreach \y/\lab in {0/30, 20/50, 40/70, 60/90} {
+  \draw[->, thick] (-0.25, 0) -- (-0.25, 78) node[above, font=\small] {GSM8K \%};
+  % y ticks (axis y = GSM8K \% - 20)
+  \foreach \y/\lab in {0/20, 10/30, 30/50, 50/70, 70/90} {
     \draw (-0.32, \y) -- (-0.18, \y) node[left, font=\scriptsize, xshift=-2pt] {\lab};
   }
   % x ticks (log-spaced positions: 0.5,1.5,3,7,14 -> indices)
   \foreach \x/\lab in {0/0.5B, 1.3/1.5B, 2.1/3B, 3.6/7B, 4.8/14B} {
     \draw (\x, -1.2) -- (\x, 1.2) node[below=2pt, font=\scriptsize] {\lab};
   }
-  % SP-RFT (orange-ish): 33.97, 54.36, 55.70, 77.38, 84.5
+  % SP-RFT (orange-ish): 33.97, 54.36, 55.70, 77.38, 84.5  (axis y = val - 20)
   \draw[orange!85!black, thick]
-    (0, 3.97) -- (1.3, 24.36) -- (2.1, 25.70) -- (3.6, 47.38) -- (4.8, 54.5);
-  \foreach \p in {(0,3.97),(1.3,24.36),(2.1,25.70),(3.6,47.38),(4.8,54.5)}
+    (0, 13.97) -- (1.3, 34.36) -- (2.1, 35.70) -- (3.6, 57.38) -- (4.8, 64.5);
+  \foreach \p in {(0,13.97),(1.3,34.36),(2.1,35.70),(3.6,57.38),(4.8,64.5)}
     \fill[orange!85!black] \p circle (0.06cm);
-  \node[orange!85!black, font=\scriptsize] at (1.5, 30) {SP-RFT};
+  \node[orange!85!black, font=\scriptsize] at (1.5, 40) {SP-RFT};
   % DPO (blue): 33.97, 49.08, 34.55, 83.38, 86.78
   \draw[blue!75!black, thick, dashed]
-    (0, 3.97) -- (1.3, 19.08) -- (2.1, 4.55) -- (3.6, 53.38) -- (4.8, 56.78);
-  \foreach \p in {(0,3.97),(1.3,19.08),(2.1,4.55),(3.6,53.38),(4.8,56.78)}
+    (0, 13.97) -- (1.3, 29.08) -- (2.1, 14.55) -- (3.6, 63.38) -- (4.8, 66.78);
+  \foreach \p in {(0,13.97),(1.3,29.08),(2.1,14.55),(3.6,63.38),(4.8,66.78)}
     \fill[blue!75!black] \p circle (0.06cm);
-  \node[blue!75!black, font=\scriptsize] at (3.0, 12) {DPO};
+  \node[blue!75!black, font=\scriptsize] at (3.0, 22) {DPO};
   % SimPO (teal): 26.08, 38.67, --, 83.32, 86.48 (skip 3B with dashed gap)
   \draw[teal!80!black, thick, dotted]
-    (0, -3.92) -- (1.3, 8.67) -- (3.6, 53.32) -- (4.8, 56.48);
-  \foreach \p in {(0,-3.92),(1.3,8.67),(3.6,53.32),(4.8,56.48)}
+    (0, 6.08) -- (1.3, 18.67) -- (3.6, 63.32) -- (4.8, 66.48);
+  \foreach \p in {(0,6.08),(1.3,18.67),(3.6,63.32),(4.8,66.48)}
     \fill[teal!80!black] \p circle (0.06cm);
-  \node[teal!80!black, font=\scriptsize] at (4.0, 60) {SimPO};
+  \node[teal!80!black, font=\scriptsize] at (4.0, 70) {SimPO};
   % inversion annotation
   \draw[->, gray!70!black, thick]
-    (2.85, 50) .. controls (3.1, 45) and (3.3, 40) .. (3.5, 38);
-  \node[gray!50!black, font=\scriptsize\itshape] at (2.6, 53) {inversion};
+    (2.85, 60) .. controls (3.1, 55) and (3.3, 50) .. (3.5, 48);
+  \node[gray!50!black, font=\scriptsize\itshape] at (2.6, 63) {inversion};
 \end{tikzpicture}
 \caption{\textbf{A scaling-law view of post-training algorithms.} GSM8K accuracy vs.\ model size (log axis) for three offline post-training methods on Qwen~2.5. Algorithm \emph{rankings} cross between 3B and 7B: \sprft{} is best at $\leq$3B but worst at $\geq$7B, while DPO and SimPO catch up and overtake. Selecting an algorithm at 1.5B is \emph{anti-predictive} of the choice at deployment scale. The inversion replicates on Gemma~3 (1B--12B; Section~\ref{sec:cross_arch}).}
 \label{fig:summary}
