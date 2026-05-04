@@ -357,17 +357,3 @@ oxRL uses **co-located vLLM rollouts** by design. For standard RL post-training 
 If and when agentic multi-turn RL with tool use becomes the dominant training paradigm, disaggregated inference will be the right call. Until then, saying "rollout is outdated" is like saying "compilation is outdated because we use build servers now." The build server *does* the compilation. The inference server *does* the rollout. The abstraction changed; the computation did not.
 
 ---
-
-## Citation
-
-If you find oxRL useful in your research, please cite our paper:
-
-```bibtex
-@article{oxrl2026,
-  title={Do Post-Training Algorithms Actually Differ? A Controlled Study Across Model Scales with Scale-Dependent Ranking Inversions},
-  author={Li, Xiaoyi},
-  journal={arXiv preprint arXiv:2603.19335},
-  year={2026},
-  url={https://arxiv.org/abs/2603.19335}
-}
-```
