@@ -56,6 +56,17 @@ A gold-data control---standard SFT on MetaMathQA (external expert data) at both 
 Together, these findings imply that small-scale algorithm selection---the dominant paradigm in both research and practice---is unreliable for mathematical reasoning, and that practitioners should validate at deployment scale, on their target architecture and task, rather than extrapolating from cheap proxies. Whether these inversions extend to other post-training objectives (instruction following, safety, creative writing) remains an open question.
 \end{abstract}
 
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{main_result.png}
+\caption{\textbf{Summary of findings.} Across $\sim$350 controlled training runs spanning Qwen~2.5 (0.5B--14B) and Gemma~3 (1B--12B), three patterns emerge.
+\textbf{(A)} On Qwen 2.5 GSM8K, Self-Play SFT (SP-RFT) leads at $\leq$1.5B but collapses at 7B, where DPO ($83.4\%\pm0.56$) and SimPO ($83.3\%\pm1.79$) dominate ($p<0.001$ vs.\ SP-RFT). The same SP-RFT $\to$ DPO inversion replicates on Gemma~3 between 1B (SP-RFT $26.7\%>$ DPO $21.5\%$) and 12B (DPO $87.4\%>$ SP-RFT $86.7\%$).
+\textbf{(B)} Replacing the Instruct checkpoint with Base compresses the inter-algorithm spread from 15.7~pp to 1.07~pp at 1.5B, and from 6.00~pp to 1.82~pp at 7B---initialization, not the loss function, accounts for most apparent algorithm differences.
+\textbf{(C)} At small scale (1.5B), the 19.3~pp GSM8K spread collapses to 0.54~pp on MATH ($36\times$); at large scale, MATH reveals genuine reasoning differences but they are architecture-dependent (DPO best on Gemma~12B, SimPO best on Qwen~14B).
+Together: small-scale algorithm selection is anti-predictive for mathematical reasoning---validate at deployment scale.}
+\label{fig:summary}
+\end{figure}
+
 % ================================================================
 % 1. INTRODUCTION
 % ================================================================
