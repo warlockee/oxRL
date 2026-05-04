@@ -26,6 +26,8 @@
 \usepackage{enumitem}
 \usepackage{algorithm}
 \usepackage{algorithmic}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta}
 
 % Custom commands
 \newcommand{\ours}{\textsc{oxRL}}
@@ -45,23 +47,64 @@
 % ABSTRACT
 % ================================================================
 \begin{abstract}
-Practitioners routinely benchmark post-training algorithms---DPO, SimPO, KTO, GRPO, and dozens of variants---at small scale, then deploy the winner at large scale.
-We show this practice is \emph{anti-predictive} for mathematical reasoning: algorithm rankings invert as models grow.
-In a controlled study spanning ${\sim}$350 training runs across two model families (Qwen~2.5 0.5B--14B, Gemma~3 1B--12B), 8 algorithms, 20 DPO variants, and up to $N{=}5$ seeds---using model-specific self-play data matching standard practitioner workflows---we find three results that challenge common intuitions.
-Importantly, these effects are task-specific: on multiple-choice general benchmarks (ARC-C, HellaSwag, WinoGrande), algorithms differ by $<$1.2~pp at all scales, and no inversion is observable---though generative instruction-following evaluations remain untested.
-\textbf{(1)~Rankings invert with scale (from Instruct checkpoints).} At $\leq$1.5B, Self-Play RFT (\sprft{})---which trains on the model's own correct trajectories, functionally rejection sampling fine-tuning~\citep{yuan2023rft}---is the strongest offline method; at 7B, \sprft{} collapses to worst while DPO leads ($p < 0.001$, $N{=}5$). A gold-data control confirms this is not an RFT artifact: standard SFT on MetaMathQA also dominates at 1.5B but converges to DPO at 7B. The same inversion appears in Gemma~3 (1B--12B) and persists at Qwen~14B (DPO leads \sprft{} by 2.2~pp), though the within-family gap narrows from 6.0~pp at 7B. We also evaluated 20 DPO variants; under shared default hyperparameters ($\beta{=}0.1$, LR${=}10^{-6}$), their point-estimate rankings reverse but are statistically unresolvable, highlighting that variant sweeps require per-variant tuning at target scale (Appendix~\ref{app:dpo_full}).
-\textbf{(2)~Initialization dominates algorithm choice.} Replacing the Instruct checkpoint with Base collapses the inter-algorithm accuracy spread from 15.7~pp to 1.07~pp at 1.5B and from 6.00~pp to 1.82~pp at 7B (a 3--15$\times$ compression). A residual ranking shift persists from Base, but at $\leq$1.8~pp---revealing that most observed differences arise from the interaction between loss functions and prior alignment.
-\textbf{(3)~Apparent differences have two regimes.} At small scale ($\leq$1.5B), the 19.3~pp GSM8K spread collapses $36\times$ to 0.54~pp on MATH---the GSM8K inversion is largely a format-compliance-to-reasoning shift, as MATH scores begin effectively tied. At large scale ($\geq$4B), MATH reveals genuine reasoning differences, but these are \emph{architecture-dependent}: DPO dominates Gemma MATH by +9~pp while SimPO dominates Qwen~14B MATH by +13~pp. Rankings cannot be extrapolated across scales, architectures, or tasks.
-A fixed-dataset control confirms that the inversion is scale-driven, not a data-quality artifact. A gold-data control rules out the hypothesis that the inversion is an artifact of self-play RFT.
-Together, these findings imply that small-scale algorithm selection---the dominant paradigm in both research and practice---is unreliable for mathematical reasoning, and that practitioners should validate at deployment scale, on their target architecture and task, rather than extrapolating from cheap proxies. Whether these inversions extend to other post-training objectives (instruction following, safety, creative writing) remains an open question.
+Practitioners routinely benchmark post-training algorithms at small scale, then deploy the winner at large scale.
+We frame the question as a \emph{scaling-law study of post-training algorithms}---measuring how algorithm rankings evolve as a function of model size---and show this practice is \emph{anti-predictive} for mathematical reasoning: rankings invert as models grow.
+In a controlled study spanning ${\sim}$350 training runs across two model families (Qwen~2.5 0.5B--14B, Gemma~3 1B--12B), 8 algorithms, and 20 DPO variants with up to $N{=}5$ seeds, we find three results.
+\textbf{(1)~Rankings invert with scale}: at $\leq$1.5B, Self-Play RFT (\sprft{}) is the strongest offline method; at 7B+, \sprft{} collapses to worst while DPO leads ($p < 0.001$). The inversion replicates in Gemma~3 and persists at Qwen~14B.
+\textbf{(2)~Initialization dominates algorithm choice}: switching Instruct$\to$Base compresses the spread 3--15$\times$.
+\textbf{(3)~Apparent differences have two regimes}: format compliance at small scale, architecture-specific reasoning at large scale.
+Together, these findings imply that small-scale algorithm selection is unreliable for mathematical reasoning, and practitioners should validate at deployment scale.
 \end{abstract}
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[x=1.05cm, y=0.07cm]
+  % axes
+  \draw[->, thick] (-0.25, 0) -- (5.7, 0) node[right, font=\small] {model size};
+  \draw[->, thick] (-0.25, 0) -- (-0.25, 70) node[above, font=\small] {GSM8K \%};
+  % y ticks
+  \foreach \y/\lab in {0/30, 20/50, 40/70, 60/90} {
+    \draw (-0.32, \y) -- (-0.18, \y) node[left, font=\scriptsize, xshift=-2pt] {\lab};
+  }
+  % x ticks (log-spaced positions: 0.5,1.5,3,7,14 -> indices)
+  \foreach \x/\lab in {0/0.5B, 1.3/1.5B, 2.1/3B, 3.6/7B, 4.8/14B} {
+    \draw (\x, -1.2) -- (\x, 1.2) node[below=2pt, font=\scriptsize] {\lab};
+  }
+  % SP-RFT (orange-ish): 33.97, 54.36, 55.70, 77.38, 84.5
+  \draw[orange!85!black, thick]
+    (0, 3.97) -- (1.3, 24.36) -- (2.1, 25.70) -- (3.6, 47.38) -- (4.8, 54.5);
+  \foreach \p in {(0,3.97),(1.3,24.36),(2.1,25.70),(3.6,47.38),(4.8,54.5)}
+    \fill[orange!85!black] \p circle (0.06cm);
+  \node[orange!85!black, font=\scriptsize] at (1.5, 30) {SP-RFT};
+  % DPO (blue): 33.97, 49.08, 34.55, 83.38, 86.78
+  \draw[blue!75!black, thick, dashed]
+    (0, 3.97) -- (1.3, 19.08) -- (2.1, 4.55) -- (3.6, 53.38) -- (4.8, 56.78);
+  \foreach \p in {(0,3.97),(1.3,19.08),(2.1,4.55),(3.6,53.38),(4.8,56.78)}
+    \fill[blue!75!black] \p circle (0.06cm);
+  \node[blue!75!black, font=\scriptsize] at (3.0, 12) {DPO};
+  % SimPO (teal): 26.08, 38.67, --, 83.32, 86.48 (skip 3B with dashed gap)
+  \draw[teal!80!black, thick, dotted]
+    (0, -3.92) -- (1.3, 8.67) -- (3.6, 53.32) -- (4.8, 56.48);
+  \foreach \p in {(0,-3.92),(1.3,8.67),(3.6,53.32),(4.8,56.48)}
+    \fill[teal!80!black] \p circle (0.06cm);
+  \node[teal!80!black, font=\scriptsize] at (4.0, 60) {SimPO};
+  % inversion annotation
+  \draw[->, gray!70!black, thick]
+    (2.85, 50) .. controls (3.1, 45) and (3.3, 40) .. (3.5, 38);
+  \node[gray!50!black, font=\scriptsize\itshape] at (2.6, 53) {inversion};
+\end{tikzpicture}
+\caption{\textbf{A scaling-law view of post-training algorithms.} GSM8K accuracy vs.\ model size (log axis) for three offline post-training methods on Qwen~2.5. Algorithm \emph{rankings} cross between 3B and 7B: \sprft{} is best at $\leq$3B but worst at $\geq$7B, while DPO and SimPO catch up and overtake. Selecting an algorithm at 1.5B is \emph{anti-predictive} of the choice at deployment scale. The inversion replicates on Gemma~3 (1B--12B; Section~\ref{sec:cross_arch}).}
+\label{fig:summary}
+\end{figure}
 
 % ================================================================
 % 1. INTRODUCTION
 % ================================================================
 \section{Introduction}
 
-Suppose you are choosing a post-training algorithm for mathematical reasoning. You benchmark Self-Play RFT (\sprft{}), DPO, and SimPO at 1.5B parameters: \sprft{} wins by 5~pp over DPO. You select \sprft{}, scale to 7B, and deploy---only to discover that \sprft{} is now the \emph{worst} method by 6~pp, while DPO has silently become best. Your small-scale selection was not just uninformative; it was anti-predictive.
+Suppose you are choosing a post-training algorithm for mathematical reasoning. You benchmark Self-Play RFT (\sprft{}), DPO, and SimPO at 1.5B parameters: \sprft{} wins by 5~pp over DPO. You select \sprft{}, scale to 7B, and deploy---only to discover that \sprft{} is now the \emph{worst} method by 6~pp, while DPO has silently become best. Your small-scale selection was not just uninformative; it was anti-predictive (Figure~\ref{fig:summary}).
+
+\textbf{We frame this as a scaling-law study of post-training algorithms}: rather than chase a single best loss function, we measure how algorithm rankings evolve as a function of model size, treating the curves themselves---not the point estimates---as the object of study.
 
 This is not a hypothetical. It is the central empirical finding of this paper, replicated across two model families and confirmed with formal statistical testing ($p < 0.001$, $N{=}5$ seeds). The practitioner's dilemma is real: every published comparison operates at a single scale, yet deployment happens at a different one. If rankings invert, the entire methodology of algorithm benchmarking at small scale is called into question.
 
@@ -90,7 +133,7 @@ The implication for practitioners is direct: validate at deployment scale, not p
 
 \textbf{Post-training algorithms and comparative studies.}
 The RLHF pipeline~\citep{ouyang2022training} uses PPO~\citep{schulman2017proximal}; GRPO~\citep{shao2024deepseekmath} simplifies this via group-normalized rewards.
-\citet{wu2025grpo_dpo} show theoretical equivalence between GRPO and DPO; our empirical results reveal an 8.9~pp gap in practice.
+\citet{wu2025grpo_dpo} show a theoretical correspondence between GRPO and DPO; our empirical results show this correspondence is scale-conditioned (SGRPO leads DPO by +8.9~pp at 1.5B but trails by $-$2.8~pp at 7B), illustrating that scale-dependent empirical separations can coexist with their scale-free theoretical equivalence.
 DPO~\citep{rafailov2023direct} bypasses reward modeling, spawning IPO~\citep{azar2024general}, SimPO~\citep{meng2024simpo}, KTO~\citep{ethayarajh2024kto}, ORPO~\citep{hong2024orpo}, and others.
 We provide the first controlled evaluation of 20 DPO variants under identical conditions.
 \citet{xu2024dpo} and \citet{ivison2024unpacking} cover only 2--3 algorithms.
@@ -108,7 +151,7 @@ Critically, none of these studies evaluate across multiple model families, leavi
 
 \label{sec:framework}
 
-\textbf{Framework.} Our framework provides a single codebase where all 51 algorithms share identical model loading (HuggingFace, \texttt{flash\_attention\_2}), data pipelines, distributed training (DeepSpeed ZeRO-3~\citep{rajbhandari2020zero}, vLLM~\citep{kwon2023efficient} for RL rollouts), and checkpointing. Each algorithm implements a \texttt{BaseAlgorithm} interface requiring only the loss function, ensuring the \emph{only} difference between runs is the loss computation. We organize algorithms into: \textbf{(1)~\sprft{};} \textbf{(2)~Online RL} (GRPO variants); \textbf{(3)~Offline preference} (DPO~\citep{rafailov2023direct}, IPO~\citep{azar2024general}, SimPO~\citep{meng2024simpo}, KTO~\citep{ethayarajh2024kto}, and 16 additional variants); \textbf{(4)~Hybrid} (ORPO~\citep{hong2024orpo}, SPIN~\citep{chen2024spin}). The 20-variant taxonomy is in Appendix~\ref{app:dpo_full}.
+\textbf{Framework.} Our framework provides a single codebase where all 51 algorithms share identical model loading (HuggingFace, \texttt{flash\_attention\_2}), data pipelines, distributed training (DeepSpeed ZeRO-3~\citep{rajbhandari2020zero}, vLLM~\citep{kwon2023efficient} for RL rollouts), and checkpointing. Each algorithm implements a \texttt{BaseAlgorithm} interface requiring only the loss function, ensuring the \emph{only} difference between runs is the loss computation. We organize algorithms into: \textbf{(1)~\sprft{};} \textbf{(2)~Online RL} (GRPO variants); \textbf{(3)~Offline preference} (DPO~\citep{rafailov2023direct}, IPO~\citep{azar2024general}, SimPO~\citep{meng2024simpo}, KTO~\citep{ethayarajh2024kto}, and 16 additional variants); \textbf{(4)~Hybrid} (ORPO~\citep{hong2024orpo}, SPIN~\citep{chen2024spin}). The 20-variant taxonomy is in Appendix~\ref{app:dpo_full}. \textbf{SGRPO} (Self-play GRPO) is our online-RL baseline: a token-level GRPO~\citep{shao2024deepseekmath} variant that performs on-policy rollouts against the same self-play prompt set used by the offline methods, scoring each rollout with exact-match correctness and applying group-normalized advantages without an explicit KL term (an ablation in Appendix~\ref{app:kl_ablation} shows KL has $<$0.2~pp effect). It serves as a controlled online counterpart to \sprft{} on identical data and prompts. Two further GRPO variants---\textbf{GSPO} (sequence-level importance ratio, robust on MoE-style routing noise) and \textbf{CISPO} (clipped ratio used as a detached weight on the log-probability)---are reported as ablations in Appendix~\ref{app:online_rl}; main-table ``online RL'' numbers refer to SGRPO unless noted.
 
 \textbf{Evaluation.} GSM8K~\citep{cobbe2021gsm8k} (1,319 test problems, exact-match, greedy decoding). MATH~\citep{hendrycks2021math} (5,000 problems, 4-shot) at 1.5B and general-domain benchmarks (ARC-C, HellaSwag, WinoGrande) at both 1.5B and 7B. All evaluations use the LM Evaluation Harness~\citep{eval-harness}. We report means $\pm \sigma$ and perform Welch's $t$-tests with Bonferroni correction where indicated.
 
@@ -143,8 +186,7 @@ The critical finding: \sprft{} drops from best offline method to \emph{worst} at
 This is the \sprft{}-to-preference inversion: the method that wins at small scale loses at large scale.
 
 \textbf{Disentangling scale from LoRA.}
-Since 7B uses LoRA while $\leq$3B uses full FT, the inversion could reflect regularization rather than scale.
-An ablation confirms the inversion holds under \emph{both} Full FT and LoRA at 7B: DPO leads under Full FT (84.5\%) just as under LoRA (83.4\%), confirming that \textbf{scale}, not LoRA, drives the inversion (Appendix~\ref{app:lora_factorial}).
+The headline curve mixes full FT at $\leq$3B with LoRA at $\geq$7B---a practitioner-realistic choice (full FT is infeasible at 7B+ on common hardware) that confounds scale with training method. A 2$\times$2 factorial at 7B trains \sprft{}/DPO/SimPO under \emph{both} regimes: DPO leads under Full FT (84.5\%) just as under LoRA (83.4\%), and the inversion appears in both cells (Appendix~\ref{app:lora_factorial}), so \textbf{scale}, not LoRA, drives the inversion; the mixed-method curve remains a residual limitation that full-FT runs at every scale could close.
 
 \begin{table}[t]
 \centering
@@ -298,7 +340,7 @@ SimPO & 1.1 & 39.2 & 32.7 & \textbf{39.1} \\
 
 \textbf{\sprft{} still beats DPO by +5.1~pp} ($58.38\% \pm 0.49$ vs.\ $53.32\% \pm 0.70$, 3 seeds each), confirming that model scale---not data quality---is the primary driver of the ranking inversion. Both algorithms benefit comparably from higher-quality data (\sprft{}: +4.0~pp, DPO: +4.2~pp), leaving the gap stable (5.06~pp vs.\ 5.28~pp with own data).
 
-\textbf{Gold-data SFT control.} Because \sprft{} trains on self-play trajectories (functionally RFT), a natural objection is that the ranking inversion merely reflects RFT's ceiling effect at scale, not a property of SFT \emph{per se}. To test this, we train standard SFT on MetaMathQA~\citep{yu2023metamath}---a high-quality, externally generated dataset of 240K GSM8K-related problems with expert solutions (3 seeds each at both 1.5B and 7B).
+\textbf{Gold-data SFT control.} Because \sprft{} trains on self-play trajectories (functionally RFT), a natural objection is that the ranking inversion merely reflects RFT's ceiling effect at scale, not a property of SFT \emph{per se}. To test this, we train standard SFT on MetaMathQA~\citep{yu2024metamath}---a high-quality, externally generated dataset of 240K GSM8K-related problems with expert solutions (3 seeds each at both 1.5B and 7B).
 
 Tables~\ref{tab:fixed_dataset}--\ref{tab:gold_sft} report both controls side by side. At \textbf{1.5B}, Gold-SFT dominates all methods at $61.05\% \pm 0.45$, outperforming DPO by +12.0~pp. At \textbf{7B}, Gold-SFT reaches $83.32\% \pm 0.28$---\textbf{converging to DPO} ($83.38\% \pm 0.56$, gap: $-$0.06~pp). The SFT advantage collapses from +12~pp at 1.5B to statistical parity at 7B, regardless of whether the training data is self-generated or externally sourced. This \textbf{falsifies the RFT-artifact hypothesis}: even with high-quality gold data that eliminates the self-play ceiling, SFT's advantage over DPO still vanishes at scale.
 
@@ -339,6 +381,11 @@ DPO & 49.08 & 0.61 & \textbf{83.38} & 0.56 \\
 \end{minipage}
 \end{table}
 
+\subsection{Algorithm Selection Under Scale Shift}
+\label{sec:scale_shift}
+
+Given that small-scale rankings are anti-predictive, what should a practitioner do when target-scale validation is too expensive? We turn the inversion into actionable guidance using \emph{rank stability across scales} as the selection criterion. Defining a rank-stability score $S(a)$ as the maximum drop in cross-scale rank position relative to 1.5B (lower is better), Tables~\ref{tab:main_results}--\ref{tab:cross_arch} give \sprft{} $1{\to}4{\to}3$ ($S{=}3$), DPO $4{\to}1{\to}1$ ($S{=}0$), SimPO $5{\to}2{\to}2$ ($S{=}0$); the same monotone pattern holds on Gemma~3. Because the inversion is one-way (preference methods overtake SFT/RFT-style), \textbf{DPO is the rank-stable bet}---never worse than 4th, best from 7B onward across both architectures. Empirically the DPO--\sprft{} gap turns positive past an architecture-specific crossover (Qwen: between 3B and 7B; Gemma: between 4B and 12B), so use DPO when deployment scale is within $2\times$ of that crossover. The within-Qwen gap actually \emph{narrows} from $+6.0$~pp at 7B to $+2.2$~pp at 14B---we therefore avoid claiming a parametric form for $\Delta(N)$ and instead frame the rule by crossover region. The mechanistic basis (Section~\ref{sec:discussion}) is that \sprft{} hits a ceiling once base accuracy is high, while contrastive objectives still extract gradient from incorrect trajectories---a ceiling monotone in scale, making the dominance regime predictable even when point estimates are not.
+
 \subsection{Practitioner Recommendations}
 \label{sec:recommendations}
 
@@ -376,7 +423,7 @@ On mathematical reasoning, post-training algorithm rankings invert with scale: t
 For mathematical reasoning, these results imply that the dominant paradigm---benchmarking algorithms at small scale and extrapolating to deployment---is unreliable and potentially counter-productive. Practitioners should validate at deployment scale. Whether this instability extends to other post-training objectives (instruction following, safety) is an important open question---our general-benchmark results suggest it may not, but those benchmarks are multiple-choice rather than generative, limiting their diagnostic power. The research community should invest in understanding how algorithms interact with scale, initialization, and task structure, rather than designing new loss functions evaluated at a single small scale.
 
 \textbf{Limitations.}
-Our study uses two model families (Qwen~2.5 up to 14B, Gemma~3 up to 12B) on mathematical reasoning. The ranking inversion is exclusively a mathematical reasoning phenomenon in our data: on general benchmarks (ARC-C, HellaSwag, WinoGrande), algorithms differ by $<$1.2~pp at all scales, with no observable inversion (Appendix~\ref{app:general_benchmarks}). However, these general benchmarks are multiple-choice or perplexity-based and do not test open-ended generation; generative instruction-following evaluations (e.g., AlpacaEval, MT-Bench) would provide a stronger test of whether the inversion extends beyond math. Generalization to instruction following, safety, or creative writing remains open. Because training data is self-generated at each scale, dataset quality covaries with model size. A fixed-dataset control at 1.5B and a gold-data SFT control at 1.5B and 7B jointly confirm that the inversion is not a data-source artifact; extending these controls to all scales would provide further evidence. The DPO variant sweep uses shared hyperparameters (LR, $\beta=0.1$) across all 20 variants; per-variant tuning could reveal differences that our plug-and-play protocol does not detect. All code, configs, and raw outputs are released for independent verification.\footnote{Code and data available upon acceptance.}
+We cover two model families (Qwen~2.5 up to 14B, Gemma~3 up to 12B) on mathematical reasoning; on multiple-choice general benchmarks (ARC-C, HellaSwag, WinoGrande) algorithms differ by $<$1.2~pp at all scales (Appendix~\ref{app:general_benchmarks}), but those are not generative tasks, so transfer to open-ended evaluation (AlpacaEval, MT-Bench), instruction following, safety, or creative writing remains open. Self-play data quality covaries with scale; the fixed-dataset and gold-data SFT controls (Section~\ref{sec:controls}) confirm the inversion is not a data-source artifact, but extending these controls to every scale would strengthen the claim. The 20-variant DPO sweep uses shared hyperparameters (LR, $\beta=0.1$); per-variant tuning could surface differences our plug-and-play protocol misses. Code and data release upon acceptance.
 
 % ================================================================
 % REFERENCES
@@ -513,7 +560,7 @@ Xu, S., Fu, W., Gao, J., Ye, W., Liu, W., Mei, Z., Wang, G., Yu, C., and Wu, Y.
 \newblock Is {DPO} superior to {PPO} for {LLM} alignment? {A} comprehensive study.
 \newblock In \emph{International Conference on Machine Learning (ICML)}, 2024.
 
-\bibitem[Yu et~al.(2024)]{yu2023metamath}
+\bibitem[Yu et~al.(2024)]{yu2024metamath}
 Yu, L., Jiang, W., Shi, H., Yu, J., Liu, Z., Zhang, Y., Kwok, J.~T., Li, Z., Weller, A., and Liu, W.
 \newblock {MetaMath}: Bootstrap your own mathematical questions for large language models.
 \newblock In \emph{ICLR}, 2024.
