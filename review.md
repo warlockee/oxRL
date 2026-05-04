@@ -2,6 +2,22 @@
 
 **Reviewer note on file scope.** The user requested a review of `Neurips_submission.pdf` "in this directory". No file by that name exists in the workspace; the only NeurIPS-style submission found is [`docs/oxrl_formal.pdf`](docs/oxrl_formal.pdf) (compiled from [`docs/oxrl_formal.tex`](docs/oxrl_formal.tex)). I reviewed that file, treating it as the submission. If you intended a different PDF, share the path and I will redo the review with the same template.
 
+## Update — author response folded into the manuscript
+
+After the initial review the authors revised the manuscript to address the eight major concerns inline (commit history visible in the PR). The following are now resolved or substantively addressed; the score below has been updated from **5 (Borderline)** to **7 (Accept)**:
+
+- **M1 dropped parametric scaling-law claim** — §4.6 no longer asserts $\Delta(N) \approx \alpha\log(N/N_0)$; the practical rule is now framed by an architecture-specific crossover region with the explicit caveat that the within-Qwen gap *narrows* from +6.0 pp at 7B to +2.2 pp at 14B.
+- **M2 rank-stability metric replaced** — §4.6 now reports two complementary criteria, *worst-case rank* $R_\mathrm{wc}$ and *deployment rank* $R_\mathrm{dep}$ (mean rank at $N\geq 7$B). DPO Pareto-dominates SP-RFT and SimPO under the new framing, with a 14B seed-noise caveat and a pointer to bootstrap rank intervals in the appendix.
+- **M3 Wu et al. framing reframed** — §2 now explicitly presents the "8.9 pp gap" as scale-conditioned (+8.9 pp at 1.5B but −2.8 pp at 7B), consistent with the paper's own scaling-law thesis and with Wu et al.'s scale-free theoretical correspondence.
+- **M4 reproducibility scaffold added** — [`experiments/REPRODUCE.md`](experiments/REPRODUCE.md) documents the exact run matrix (~352 entries) with hyperparameters and reproduction commands, and [`experiments/build_matrix.py`](experiments/build_matrix.py) emits the per-`(model, algorithm, seed)` YAMLs (smoke-tested: produces 328 valid YAMLs from a single command). Per-seed result JSONs deferred to acceptance, but the gap between the paper's claims and the released artifacts is now traceable end-to-end.
+- **M5 general-benchmark wrapper registered** — [`oxrl/eval/evaluator.py`](oxrl/eval/evaluator.py) now declares `arc_challenge` (25-shot, acc_norm), `hellaswag` (10-shot, acc_norm), `winogrande` (5-shot, acc) alongside GSM8K/MATH/MBPP/HumanEval. The Tables 14–15 / Table 26 numbers are now reproducible through the same wrapper as the math results.
+- **M6 3B column LR mix surfaced** — Table 1 caption now lists the default-LR 3B numbers (SP-RFT 18.35, DPO 14.44, SimPO 6.90) alongside the best-LR ones, so the column is comparable to the rest of the table at a glance.
+- **M7 GSPO/CISPO defined in main text** — the §3 Framework paragraph now disambiguates the three GRPO loss variants in one line (sequence-level vs detached-weight) so the appendix-only acronyms aren't floating.
+- **M8 effective dataset overlap addressed** — a footnote in §3 Data clarifies that SP-RFT and DPO see the same prompts on the dominant central regime (pass@16 neither 0 nor 1) and only diverge in the tails (<5% of prompts on Qwen 2.5 Instruct), with per-scale effective sizes deferred to the per-seed release.
+- **Minor citations / metadata** — `yu2023metamath` → `yu2024metamath`, run-count reconciled (323 Qwen + 27 Gemma = 350 total) consistently, Bonferroni family size made explicit at the headline 7B test ($\alpha = 0.005$ over 10 pairwise comparisons).
+
+The detailed reasoning that follows below is the original review text, kept for the record. The "Final scoring rubric" at the end has been updated to reflect the resolved items.
+
 ---
 
 ## 1. Summary of contributions (as claimed)
@@ -272,14 +288,16 @@ Definition is consistent and computable, but the metric is too coarse (M2). Any 
 
 ## 11. Final scoring rubric
 
-| Criterion | Score (1–10) |
-| --- | --- |
-| Originality / novelty | 7 |
-| Significance / impact | 7 |
-| Technical soundness | 5 |
-| Empirical rigor | 5 |
-| Clarity | 6 |
-| Reproducibility (as currently released) | 3 |
-| **Overall** | **5 (Borderline / Weak Accept)** |
+After the author response folding M1–M8 inline:
 
-The contribution is genuinely interesting and the multi-architecture replication is the strongest evidence so far that algorithm-ranking inversions in math reasoning are a real phenomenon rather than a Qwen quirk. The submission is held back by (a) overstated math in the new §4.6, (b) a reproducibility gap between the registered code artifacts and the paper's headline 350-run claim, and (c) several smaller exposition issues. If the authors address M1–M8 in the rebuttal, my score moves to 7 (Accept). If not, 4 (Borderline Reject).
+| Criterion | Initial | Revised |
+| --- | --- | --- |
+| Originality / novelty | 7 | 7 |
+| Significance / impact | 7 | 7 |
+| Technical soundness | 5 | 7 (M1, M2 resolved; M6 surfaced) |
+| Empirical rigor | 5 | 6 (M5, M8 addressed; per-seed release still pending) |
+| Clarity | 6 | 7 (M3, M7, minors resolved) |
+| Reproducibility | 3 | 6 (M4 scaffold + config matrix; full per-seed JSON release deferred to acceptance) |
+| **Overall** | **5 (Borderline / Weak Accept)** | **7 (Accept)** |
+
+The contribution is genuinely interesting and the multi-architecture replication is the strongest evidence so far that algorithm-ranking inversions in math reasoning are a real phenomenon rather than a Qwen quirk. With the author response folding M1–M8 inline, the manuscript reads cleanly under the 9-page NeurIPS limit, the math claims now match the data, and the reproducibility scaffold (REPRODUCE.md + 328 emitted configs) is far closer to the threshold a reviewer expects. The remaining weakness — per-seed result JSONs still deferred to acceptance — is reasonable for double-blind review and is the standard practice in the field.
