@@ -54,6 +54,24 @@ SUPPORTED_TASKS = {
         "metric": "pass@1",
         "description": "HumanEval code generation (0-shot, pass@1)",
     },
+    "arc_challenge": {
+        "lm_eval_task": "arc_challenge",
+        "num_fewshot": 25,
+        "metric": "acc_norm",
+        "description": "ARC-Challenge multiple-choice (25-shot, acc_norm)",
+    },
+    "hellaswag": {
+        "lm_eval_task": "hellaswag",
+        "num_fewshot": 10,
+        "metric": "acc_norm",
+        "description": "HellaSwag commonsense (10-shot, acc_norm)",
+    },
+    "winogrande": {
+        "lm_eval_task": "winogrande",
+        "num_fewshot": 5,
+        "metric": "acc",
+        "description": "WinoGrande pronoun resolution (5-shot, accuracy)",
+    },
 }
 
 
