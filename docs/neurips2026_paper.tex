@@ -58,7 +58,7 @@ Together, these findings imply that small-scale algorithm selection---the domina
 
 \begin{figure}[h]
 \centering
-\includegraphics[width=\textwidth]{main_result.png}
+\includegraphics[width=\textwidth]{main_result.pdf}
 \caption{\textbf{Summary of findings.} Across $\sim$350 controlled training runs spanning Qwen~2.5 (0.5B--14B) and Gemma~3 (1B--12B), three patterns emerge.
 \textbf{(A)} On Qwen 2.5 GSM8K, Self-Play SFT (SP-RFT) leads at $\leq$1.5B but collapses at 7B, where DPO ($83.4\%\pm0.56$) and SimPO ($83.3\%\pm1.79$) dominate ($p<0.001$ vs.\ SP-RFT). The same SP-RFT $\to$ DPO inversion replicates on Gemma~3 between 1B (SP-RFT $26.7\%>$ DPO $21.5\%$) and 12B (DPO $87.4\%>$ SP-RFT $86.7\%$).
 \textbf{(B)} Replacing the Instruct checkpoint with Base compresses the inter-algorithm spread from 15.7~pp to 1.07~pp at 1.5B, and from 6.00~pp to 1.82~pp at 7B---initialization, not the loss function, accounts for most apparent algorithm differences.
