@@ -33,6 +33,13 @@
 \newcommand{\ours}{\textsc{oxRL}}
 \newcommand{\sprft}{SP-RFT}
 
+% NeurIPS Paper Checklist answer macros
+\newcommand{\answerYes}[1][]{\textcolor{blue}{[Yes]}#1}
+\newcommand{\answerNo}[1][]{\textcolor{red}{[No]}#1}
+\newcommand{\answerNA}[1][]{\textcolor{gray}{[N/A]}#1}
+\newcommand{\answerTODO}[1][]{\textcolor{orange}{[TODO]}#1}
+\newcommand{\justificationTODO}[1][]{\textcolor{orange}{[TODO]}#1}
+
 \title{Do Post-Training Algorithms Actually Differ\\ on Mathematical Reasoning at Scale?}
 
 \author{
@@ -1152,5 +1159,95 @@ Table~\ref{tab:general_benchmarks} reports ARC-Challenge, HellaSwag, and WinoGra
 \bottomrule
 \end{tabular}
 \end{table}
+
+% ================================================================
+% NeurIPS Paper Checklist
+% ================================================================
+\newpage
+\section*{NeurIPS Paper Checklist}
+
+\begin{enumerate}
+
+\item {\bf Claims}\\
+Do the main claims made in the abstract and introduction accurately reflect the paper's contributions and scope?\\
+\textbf{Answer:} \answerYes{}\\
+\textbf{Justification:} The abstract and introduction make three claims: (1) rankings invert with scale, (2) initialization dominates algorithm choice, and (3) apparent differences have two regimes. Each is supported by a dedicated results subsection (Sec.~\ref{sec:cross_arch}, Sec.~\ref{sec:ranking_inversion}, Sec.~\ref{sec:base_ablation}, and Sec.~\ref{sec:format_compliance}), with formal statistical testing ($p<0.001$, Bonferroni-corrected) and cross-architecture replication (Gemma~3). The scope is explicitly limited to mathematical reasoning on two model families.
+
+\item {\bf Limitations}\\
+Does the paper discuss the limitations of the work performed by the authors?\\
+\textbf{Answer:} \answerYes{}\\
+\textbf{Justification:} A dedicated \textbf{Limitations} paragraph appears in the Discussion (page~\pageref{sec:discussion} approximately): two model families, math-only generative tasks, MC-only general benchmarks, asymmetric fixed-dataset control, and noise-floor (0.5B) / LR-pathology (3B) caveats. Appendices~\ref{app:seed_invariance} and~\ref{app:lr_ablation_3b} discuss these in detail.
+
+\item {\bf Theory assumptions and proofs}\\
+For each theoretical result, does the paper provide the full set of assumptions and a complete (and correct) proof?\\
+\textbf{Answer:} \answerNA{}\\
+\textbf{Justification:} The paper is an empirical study of post-training algorithms; it presents no formal theorems requiring proofs. Statistical procedures (Welch's $t$-test, Bonferroni correction) are standard and cited.
+
+\item {\bf Experimental result reproducibility}\\
+Does the paper fully disclose all the information needed to reproduce the main experimental results?\\
+\textbf{Answer:} \answerYes{}\\
+\textbf{Justification:} All training configurations (learning rates, batch sizes, LoRA rank, KL coefficients, optimizer, GPUs/run) are listed in Appendix~\ref{app:configs} (Table in Sec.~``Training Configurations''). Datasets (GSM8K, MATH, ARC-C, HellaSwag, WinoGrande), models (Qwen~2.5 0.5B--14B, Gemma~3 1B--12B), seed counts, and evaluation protocol are specified. The repository (oxRL) is referenced; code and data will be released upon acceptance per the Limitations statement.
+
+\item {\bf Open access to data and code}\\
+Does the paper provide open access to the data and code, with sufficient instructions to faithfully reproduce the main experimental results, as described in supplemental material?\\
+\textbf{Answer:} \answerYes{}\\
+\textbf{Justification:} All datasets used (GSM8K, MATH, ARC-C, HellaSwag, WinoGrande) are public benchmarks with standard splits. The oxRL training framework is open-source; the repository URL and pre-trained checkpoints will be deanonymized upon acceptance. Supplementary material includes training configs and evaluation scripts. Self-play training data (generated rollouts) will be released alongside checkpoints to enable exact replication.
+
+\item {\bf Experimental setting/details}\\
+Does the paper specify all the training and test details (e.g., data splits, hyperparameters, how they were chosen, type of optimizer, etc.) necessary to understand the results?\\
+\textbf{Answer:} \answerYes{}\\
+\textbf{Justification:} Section~\ref{sec:methods} (``Methods and Experimental Setup'') specifies the protocol; Appendix~\ref{app:configs} lists per-algorithm hyperparameters and learning rates. Learning rate sensitivity is analyzed at 1.5B, 3B, and 7B (Appendices~\ref{app:lr_ablation_3b} and the LR-sweep appendices). Test protocols (strict-match, sampling-based) are documented in Appendix~\ref{app:sampling_eval}.
+
+\item {\bf Experiment statistical significance}\\
+Does the paper report error bars suitably and correctly defined or other appropriate information about the statistical significance of the experiments?\\
+\textbf{Answer:} \answerYes{}\\
+\textbf{Justification:} Up to $N=5$ seeds are run for headline comparisons (1.5B and 7B \sprft{}/DPO/SimPO); 3 seeds for cross-architecture (Gemma~3) and 14B runs. Standard deviations are reported throughout (e.g., $83.38\% \pm 0.56$). Welch's $t$-tests with Bonferroni correction are applied; the $\alpha=0.005$ family-wise threshold and 80\% power calculation are stated explicitly (Appendix~\ref{app:seed_invariance}, DPO variant table caption).
+
+\item {\bf Experiments compute resources}\\
+For each experiment, does the paper provide sufficient information on the computer resources (type of compute workers, memory, time of execution) needed to reproduce the experiments?\\
+\textbf{Answer:} \answerYes{}\\
+\textbf{Justification:} Appendix~\ref{app:compute} (``Compute Budget'') gives a per-category breakdown across $\sim$350 training runs: GPU type (H100 80GB), GPUs/run, time/run, and total GPU-hours per category. Grand total: $\sim$940 GPU-hours.
+
+\item {\bf Code of ethics}\\
+Does the research conducted in the paper conform, in every respect, with the NeurIPS Code of Ethics?\\
+\textbf{Answer:} \answerYes{}\\
+\textbf{Justification:} The work uses publicly released model weights (Qwen~2.5, Gemma~3) and public benchmark datasets (GSM8K, MATH, ARC, HellaSwag, WinoGrande) under their respective licenses. No human subjects, personal data, or sensitive deployments are involved. The study is a methodological audit of post-training algorithms.
+
+\item {\bf Broader impacts}\\
+Does the paper discuss both potential positive societal impacts and negative societal impacts of the work performed?\\
+\textbf{Answer:} \answerYes{}\\
+\textbf{Justification:} The Discussion notes that the central finding---small-scale algorithm rankings invert at deployment scale---has direct positive impact for the post-training research community by exposing a methodological hazard and arguing for deployment-scale validation. Negative impacts are minimal: the paper releases no new generative capability beyond what is already publicly available; it studies algorithm-selection methodology, not new model artifacts.
+
+\item {\bf Safeguards}\\
+Does the paper describe safeguards that have been put in place for responsible release of data or models with a high risk for misuse (e.g., pretrained language models, image generators, or scraped datasets)?\\
+\textbf{Answer:} \answerNA{}\\
+\textbf{Justification:} The paper releases fine-tuned math-reasoning checkpoints derived from already-public base models (Qwen~2.5, Gemma~3). Math-task fine-tunes do not introduce new misuse risks beyond those of the base models, which already shipped with their own safety releases.
+
+\item {\bf Licenses for existing assets}\\
+Are the creators or original owners of assets (e.g., code, data, models) used in the paper properly credited and are the license and terms of use explicitly mentioned and respected?\\
+\textbf{Answer:} \answerYes{}\\
+\textbf{Justification:} All base models (Qwen~2.5~\citep{qwen2025qwen25}, Gemma~3~\citep{gemma3_2025}) and benchmarks (GSM8K, MATH, ARC, HellaSwag, WinoGrande) are cited. Qwen~2.5 is released under Apache~2.0 (0.5B/1.5B/7B/14B) and Qwen-Research license (3B); Gemma~3 is under the Gemma Terms of Use; the benchmarks are MIT/Apache~2.0/CC-BY. All uses are within license terms (research, non-commercial evaluation).
+
+\item {\bf New assets}\\
+Are new assets introduced in the paper well documented and is the documentation provided alongside the assets?\\
+\textbf{Answer:} \answerYes{}\\
+\textbf{Justification:} The oxRL framework (release planned upon deanonymization) ships with a README documenting training, evaluation, and reproduction commands; a Croissant metadata file documents released self-play datasets including biases, collection, and PII fields. Per-checkpoint model cards specify training algorithm, base model, hyperparameters, and intended use.
+
+\item {\bf Crowdsourcing and research with human subjects}\\
+For crowdsourcing experiments and research with human subjects, does the paper include the full text of instructions given to participants and screenshots, if applicable, as well as details about compensation (if any)?\\
+\textbf{Answer:} \answerNA{}\\
+\textbf{Justification:} No crowdsourcing or human-subject experiments. All evaluation uses automated metric extraction on public benchmarks.
+
+\item {\bf Institutional review board (IRB) approvals or equivalent for research with human subjects}\\
+Does the paper describe potential risks incurred by study participants, whether such risks were disclosed to the subjects, and whether Institutional Review Board (IRB) approvals (or an equivalent approval/review based on the requirements of your country or institution) were obtained?\\
+\textbf{Answer:} \answerNA{}\\
+\textbf{Justification:} No human-subject research; IRB approval not applicable.
+
+\item {\bf Declaration of LLM usage}\\
+Does the paper describe the usage of LLMs if it is an important, original, or non-standard component of the core methods in this research?\\
+\textbf{Answer:} \answerYes{}\\
+\textbf{Justification:} LLMs are the object of study: the paper post-trains and evaluates open-weight LLMs (Qwen~2.5 0.5B--14B, Gemma~3 1B--12B). Their roles---as base policies, as self-play trajectory generators (\sprft{}), and as evaluation targets---are documented in Sec.~\ref{sec:methods} and Appendix~\ref{app:configs}. LLMs were not used as part of the writing methodology beyond standard editing assistance.
+
+\end{enumerate}
 
 \end{document}
