@@ -1,0 +1,93 @@
+{
+  "@context": {
+    "@language": "en",
+    "@vocab": "https://schema.org/",
+    "arrayShape": "cr:arrayShape",
+    "citeAs": "cr:citeAs",
+    "column": "cr:column",
+    "conformsTo": "dct:conformsTo",
+    "containedIn": "cr:containedIn",
+    "cr": "http://mlcommons.org/croissant/",
+    "data": {
+      "@id": "cr:data",
+      "@type": "@json"
+    },
+    "dataBiases": "cr:dataBiases",
+    "dataCollection": "cr:dataCollection",
+    "dataType": {
+      "@id": "cr:dataType",
+      "@type": "@vocab"
+    },
+    "dct": "http://purl.org/dc/terms/",
+    "extract": "cr:extract",
+    "field": "cr:field",
+    "fileProperty": "cr:fileProperty",
+    "fileObject": "cr:fileObject",
+    "fileSet": "cr:fileSet",
+    "format": "cr:format",
+    "includes": "cr:includes",
+    "isArray": "cr:isArray",
+    "isLiveDataset": "cr:isLiveDataset",
+    "jsonPath": "cr:jsonPath",
+    "key": "cr:key",
+    "md5": "cr:md5",
+    "parentField": "cr:parentField",
+    "path": "cr:path",
+    "personalSensitiveInformation": "cr:personalSensitiveInformation",
+    "recordSet": "cr:recordSet",
+    "references": "cr:references",
+    "regex": "cr:regex",
+    "repeated": "cr:repeated",
+    "replace": "cr:replace",
+    "sc": "https://schema.org/",
+    "separator": "cr:separator",
+    "source": "cr:source",
+    "subField": "cr:subField",
+    "transform": "cr:transform",
+    "dataLimitations": "cr:dataLimitations",
+    "dataUseCases": "cr:dataUseCases",
+    "dataSocialImpact": "cr:dataSocialImpact",
+    "hasSyntheticData": "cr:hasSyntheticData"
+  },
+  "@type": "sc:Dataset",
+  "distribution": [
+    {
+      "@type": "cr:FileObject",
+      "@id": "repo",
+      "name": "repo",
+      "description": "The Hugging Face git repository.",
+      "contentUrl": "https://huggingface.co/datasets/warlockee/orze-nips-experiments/tree/refs%2Fconvert%2Fparquet",
+      "encodingFormat": "git+https",
+      "sha256": "https://github.com/mlcommons/croissant/issues/80"
+    }
+  ],
+  "recordSet": [],
+  "conformsTo": "http://mlcommons.org/croissant/1.1",
+  "name": "orze-nips-experiments",
+  "description": "\n\t\n\t\t\n\t\tOrze NIPS 2026 \u2014 Experiment Logs\n\t\n\nPer-experiment metrics and configs from the NeurIPS 2026 paper \"Auto Research Is Not Auto Tuning: Convergence Analysis of 10,000 LLM-Guided Experiments\".\nThis dataset contains the raw experiment logs analyzed in the paper. Two LLM agents (Claude and Gemini) ran 4,233 experiments on the Nexar Dashcam Collision Prediction task, autonomously proposing configurations, running training, and iterating based on results.\n\n\t\n\t\t\n\t\n\t\n\t\tContents\u2026 See the full description on the dataset page: https://huggingface.co/datasets/warlockee/orze-nips-experiments.",
+  "alternateName": [
+    "warlockee/orze-nips-experiments"
+  ],
+  "creator": {
+    "@type": "Person",
+    "name": "erik li",
+    "url": "https://huggingface.co/warlockee"
+  },
+  "keywords": [
+    "mit",
+    "\ud83c\uddfa\ud83c\uddf8 Region: US",
+    "llm-guided-experiments",
+    "automl",
+    "neural-architecture-search",
+    "dashcam",
+    "collision-detection"
+  ],
+  "license": "https://choosealicense.com/licenses/mit/",
+  "url": "https://huggingface.co/datasets/warlockee/orze-nips-experiments",
+  "cr:dataLimitations": "Covers a single task (Nexar dashcam collision prediction) with two LLM agents (Claude and Gemini); 4,233 experiments. Findings on agent behaviour and hyperparameter search may not generalise to other tasks, agents, or compute budgets.",
+  "cr:dataBiases": "LLM agents may exhibit systematic biases toward certain hyperparameter ranges or architectures based on their training. Experiment distribution reflects the agents' exploration strategies, not a uniform or random search.",
+  "cr:personalSensitiveInformation": "None. Contains only experiment configurations, training metrics, and evaluation scores. Dashcam video frames used during training are not included in this release.",
+  "cr:dataUseCases": "Analysing LLM-guided AutoML behaviour; studying convergence of autonomous experiment loops; reproducing NeurIPS 2026 paper results on agent-driven research.",
+  "cr:dataSocialImpact": "Advances understanding of autonomous ML research agents and their failure modes. Could accelerate AI-driven experiment design; users should be aware that agent-proposed configurations may reflect model biases rather than principled search.",
+  "cr:hasSyntheticData": false
+}
