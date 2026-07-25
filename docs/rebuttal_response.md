@@ -1,6 +1,4 @@
-# OpenReview-ready response boxes (each fits the 5,000-char comment limit)
-
-<!-- ============ BOX 1 of 4: post as "Response to Reviewer (1/4) — Global" ============ -->
+# Response to Reviewer
 
 **Global response**
 
@@ -21,13 +19,13 @@ SimPO — the *worst* method at every scale ≤1.5B — is *best* at 32B; SP-RFT
 
 **On the rating rationale.** We gently note a tension: the rationale cites "inadequate reproducibility," while the review's Reproducibility field says "Yes — the authors released code and a training dataset as well as detailed hyperparameters" (520 frozen per-run configs, ~145k-row datasets, per-seed checkpoints, one-command train/eval, datasheet + Croissant metadata). Similarly, no technical flaw is identified, and the ethics assessment is "no or very minor concerns." We hope the final assessment can reconcile these with the score.
 
-<!-- ============ BOX 2 of 4: post as "Response (2/4) — Presentation & missing evidence (W1, W2)" ============ -->
+---
 
 **W1 — Presentation (all will be fixed).** (1) Full algorithm names + citations at first mention in the introduction. (2) Abstract "≤1.5B" vs intro "≤3B": the reviewer is right this is confusing. SP-RFT leads DPO at 0.5B–3B — at 3B at *every* LR tested (55.7 vs 34.6 at per-algorithm best LR) — but 3B has a format-compliance pathology at the shared default LR, so the abstract was conservative. We will use "≤3B" consistently, with the caveat attached. (3) "Capable base model → useful one" will be replaced with a precise statement: post-training converts raw problem-solving ability into reliably formatted behavior (base Qwen2.5-3B: 62.9% flexible-extract vs 10.7% strict-match). (4) "Formatting capabilities" will be defined as answer-format compliance under strict-match grading, cross-referenced to the strict-vs-flexible gap appendix. (5) Naming normalized to Qwen2.5-14B etc. (10 occurrences fixed).
 
 **W2 — Evidence.** (1) *ARC-C/multiple-choice results are in the submission*: per-benchmark tables at 1.5B and 7B, a cross-scale summary appendix, and the 14B general-average column; cited from abstract, intro, §4.6, Limitations. We will move the 1.5B table into the main text, and add Gemma-3 1B/4B/12B general results (spreads ≤1.6pp, no inversion). (2) *SGRPO < base at 3B* is the documented pathology; the appendix explains the mechanism (on-policy rollouts get zero reward for ill-formatted generations, so the crisis compounds: 4.93% ep1, 8.11% ep2 vs base 10.69%). We will surface this in the Table 1 caption. (3) *IPO > SP-RFT at 0.5B*: +0.53pp at the paper's documented noise floor. Our new multi-seed rerun quantifies it: IPO 33.97±0.68 vs SP-RFT 33.59±0.26 — within one seed-σ; the four stable methods cluster within 0.79pp and we will state that no 0.5B ordering is meaningful. (4) *§4.4 format-compliance claim*: supported by the 36× (MATH) and 41× (general) spread compressions and the strict-vs-flexible table; cross-references will be moved to the sentence itself.
 
-<!-- ============ BOX 3 of 4: post as "Response (3/4) — Scale & controls (W3)" ============ -->
+---
 
 **W3.1 — 32B**: see Global response table. The deployment picture now spans 7B→32B in Qwen plus 12B in Gemma; the DPO–SP-RFT gap is +6.0pp (7B) → +2.2 (14B) → +1.7 (32B), the ordering stable at every deployment scale. (32B cells are single-seed and marked as such per the paper's convention; additional seeds are running and will be posted if they complete within the discussion window.)
 
@@ -42,7 +40,7 @@ SimPO — the *worst* method at every scale ≤1.5B — is *best* at 32B; SP-RFT
 
 Unlike Qwen (where 14B data preserves SP-RFT > DPO: 58.4 vs 53.3), on Gemma strong-teacher data flips the ordering — consistent with a capability-gap effect (SP-RFT imitates trajectories the 1B cannot reproduce; DPO's contrastive signal degrades gracefully). We will scope §4.7 to Qwen, add this control with discussion, and note it reinforces the paper's central message: rankings are unstable across scale, architecture, *and data provenance* — validate under your own workflow. We thank the reviewer for pushing on this.
 
-<!-- ============ BOX 4 of 4: post as "Response (4/4) — Questions, dataset, closing" ============ -->
+---
 
 **Q1 — Missing Table-1 values.** The "---" cells were IPO/KTO/SimPO at 3B, omitted because the 3B default-LR pathology made strict-match uninformative and the LR sweep covered the claim-bearing methods. Now filled (3 seeds, shared default LR): IPO 24.92±0.85, KTO 23.68±0.87, SimPO 9.60±3.84 — all far below base's 62.9% flexible-extract, confirming a checkpoint-wide pathology. A table note will explain every remaining "—" (SGRPO at 14B: ~6× rollout compute).
 
