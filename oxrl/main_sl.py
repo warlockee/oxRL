@@ -152,11 +152,17 @@ def training_engine_setup(deepspeed_config, model, train_config=None, ref_model=
         # ref_model is supported here in case if we want to add
         # additional metrics, divergence, etc. Note, ref_model will not be optimized.
         try:
+            # Replicating the full ref model per GPU only works while it fits
+            # next to the ZeRO-3-sharded policy; beyond ~20B params go straight
+            # to the sharded fallback (a failed .to() leaves GPU memory poisoned).
+            if sum(p.numel() for p in ref_model.parameters()) > 40e9:
+                raise RuntimeError("ref model too large to replicate per-GPU; using ZeRO-3 sharded ref")
             ref_model.to(model_engine.device)
             ref_model.eval()
             ref_model_engine = ref_model
 
         except Exception:
+            torch.cuda.empty_cache()
             # fallback: initialize with DeepSpeed
             # Use a minimal config for ref model
             ref_ds_config = {
@@ -628,6 +634,15 @@ if __name__ == "__main__":
     # Ensure all nodes have loaded the model and data before anyone starts iterating
     if torch.distributed.is_initialized():
         torch.distributed.barrier()
+
+    # DPO without a separate ref model (too large to co-host at 32B+):
+    # precompute reference logps from the still-untouched initial weights.
+    if alg_name == "dpo" and ref_model_engine is None and getattr(alg, "ref_cache", "n/a") is None:
+        logger.info("DPO ref-free mode: precomputing reference logps from initial policy weights...")
+        alg.build_ref_cache(train_dataloader, model_engine.device, extra_loaders=(val_dataloader,))
+        logger.info(f"Reference logp cache built: {len(alg.ref_cache)} rows")
+        if torch.distributed.is_initialized():
+            torch.distributed.barrier()
 
     for epoch in range(config.train.total_number_of_epochs):
         epoch_start_time = time.time()
