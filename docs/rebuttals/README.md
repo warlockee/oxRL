@@ -9,9 +9,12 @@ it, don't fork it.
 
 | File | Purpose | Status |
 |---|---|---|
-| `reviewer1_response.md` | Reviewer 1 (rating 2, conf 4): presentation, ARC-C, 32B, GRPO, controls, zero-variance | ready to post (9,617 chars) |
-| `reviewer1_full.md` | Extended version of the above | reference |
-| `results_appendix.md` | Per-seed results: 0.5B rerun, Gemma control, 3B fill, 32B | 32B seeds 123/456 in progress |
+| `reviewer1_response.md` | Reviewer 1 (rating 2): presentation, ARC-C, 32B, GRPO, controls, zero-variance | posted |
+| `reviewer1_followup.md` | 32B N=3 follow-up comment | ready to post |
+| `reviewer1_full.md` | Extended version | reference |
+| `reviewer2_response.md` | Reviewer 2 (rating 3): scope, format analysis, factorial, 3rd family | ready to post (9,583 chars; insert anon link) |
+| `reviewer2_draft.md` | Same content, working copy | reference |
+| `results_appendix.md` | Per-seed results: 0.5B rerun, Gemma control, 3B fill, 32B N=3, Llama-3, factorial, item-level | complete |
 
 Supporting artifacts:
 - Raw eval JSONs: `oxrl_results/eval_r6_*` on FSx (release with artifacts).
