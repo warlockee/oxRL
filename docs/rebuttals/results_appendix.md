@@ -103,3 +103,10 @@ Identical shared recipe (LR 1e-6, beta 0.1, 3 epochs); self-play data generated 
 
 Own-data (1.5B) and 14B-teacher cells: sections below / submission Table 6. Independent 1.5B core rerun (current stack): SP-RFT 57.11±0.22, IPO 55.80±0.46, KTO 54.79±0.76, DPO 54.64±1.73, SimPO 49.25±1.49 — Table 1 ranking reproduced exactly. Item-level format-error rates (flex-correct AND strict-wrong): SP-RFT 1.26±0.29, IPO 1.97±0.08, KTO 2.10±0.16, DPO 2.55±0.66, SimPO 5.66±0.34; strict solve-set Jaccard overlaps 0.65-0.89. Raw per-item logs under oxrl_results/eval_r7_15b_core.
 
+
+## G. Reviewer-3 additions (GSM8K 8-shot strict unless noted)
+
+7B full-FT factorial, N=3: DPO 83.85±0.85, SimPO 83.22±1.41, SP-RFT 79.35±0.77.
+Reverse fixed-data control (7B learner on 1.5B-teacher data, N=3): SP-RFT 82.26±0.68, DPO 81.68±0.98.
+IFEval (generative instruction following, prompt-level strict): base 73.01, DPO 71.53, SP-RFT 70.24, SimPO 69.87.
+Raw JSONs: results/eval_r9_reviewer3/, results/eval_r9_ifeval/.

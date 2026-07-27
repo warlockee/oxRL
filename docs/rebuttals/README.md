@@ -13,7 +13,8 @@ it, don't fork it.
 | `reviewer1_full.md` | Extended version | reference |
 | `reviewer2_response.md` | Reviewer 2 (rating 3): scope, format analysis, factorial, 3rd family | ready to post (9,583 chars; insert anon link) |
 | `reviewer2_draft.md` | Same content, working copy | reference |
-| `results_appendix.md` | Per-seed results: 0.5B rerun, Gemma control, 3B fill, 32B N=3, Llama-3, factorial, item-level | complete |
+| `results_appendix.md` | Per-seed results: all discussion-period experiments (rounds r6-r9) | complete |
+| `reviewer3_response.md` | Reviewer 3 (rating 4): generative gap, reverse control, factorial seeds, mechanism | ready to post (6,884 chars) |
 
 Supporting artifacts:
 - Raw eval JSONs: `oxrl_results/eval_r6_*` on FSx (release with artifacts).
