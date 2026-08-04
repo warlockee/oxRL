@@ -45,12 +45,14 @@ class PromptPreferenceDataset(Dataset):
 
     def _tokenize_sample(self, prompt: List[Dict[str, str]], response: str) -> Dict[str, torch.Tensor]:
         # 1. Tokenize prompt
-        prompt_ids = self.tokenizer.apply_chat_template(
+        _ct_out = self.tokenizer.apply_chat_template(
             conversation=prompt,
+            enable_thinking=False,
             add_generation_prompt=True,
             tokenize=True,
             return_tensors='pt'
-        )[0]
+        )
+        prompt_ids = (_ct_out['input_ids'][0] if hasattr(_ct_out, 'keys') else _ct_out[0])
         prompt_len = len(prompt_ids)
 
         # 2. Tokenize response + EOS

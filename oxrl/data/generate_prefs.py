@@ -142,6 +142,7 @@ def generate_and_score(
     for p in prompts:
         prompt_ids = tokenizer.apply_chat_template(
             conversation=p["prompt"],
+            enable_thinking=False,
             add_generation_prompt=True,
             tokenize=True,
             return_tensors=None,

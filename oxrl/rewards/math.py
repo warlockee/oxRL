@@ -74,3 +74,31 @@ def soft_math_reward_func(prompt_ids: List[int], response_ids: List[int], finish
         if _normalize_math(predicted) == _normalize_math(ground_truth):
             r[-1] = 1.0
     return r, is_per_token
+
+
+def gsm8k_format_accuracy_reward_func(prompt_ids: List[int], response_ids: List[int], finish_reason: Any, metadata: Optional[Dict] = None):
+    '''
+    Decoupled GSM8K reward: format component + accuracy component.
+      +0.2 if the response contains an extractable final answer in the
+           expected format (parseable by the same extractor as evaluation);
+      +1.0 additionally if that answer is numerically correct.
+    Use for: online RL where accuracy-only reward is too sparse to bootstrap
+    formatting (e.g., checkpoints with format non-compliance); mirrors the
+    standard accuracy+format decoupling used in DeepSeek-R1-style pipelines.
+    '''
+    is_per_token = False
+    r = torch.zeros((len(response_ids),), dtype=torch.float32)
+    if len(response_ids) == 0 or not metadata:
+        return r, is_per_token
+    ground_truth = metadata.get("answer", "")
+    predicted = extract_answer(metadata.get("response_text", ""))
+    if predicted is None:
+        return r, is_per_token
+    r[-1] = 0.2  # format: parseable final answer present
+    if ground_truth:
+        try:
+            if abs(float(predicted) - float(ground_truth)) < 1e-5:
+                r[-1] += 1.0
+        except ValueError:
+            pass
+    return r, is_per_token

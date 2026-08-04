@@ -181,12 +181,14 @@ def ensure_auto_docstring_union_type():
             _orig_fn = _ad._process_parameter_type
             import inspect as _inspect
 
-            def _patched_process_parameter_type(param, param_name, func):
-                # Handle types.UnionType (e.g., int | None) which lacks __name__
+            def _patched_process_parameter_type(param, *args, **kwargs):
+                # Handle types.UnionType (e.g., int | None) which lacks __name__.
+                # Signature-agnostic: transformers changed this function's arity
+                # across versions (3 args in 4.x, 1 arg in 5.x).
                 if param.annotation != _inspect.Parameter.empty:
                     if isinstance(param.annotation, _types.UnionType):
                         return str(param.annotation), True
-                return _orig_fn(param, param_name, func)
+                return _orig_fn(param, *args, **kwargs)
 
             _ad._process_parameter_type = _patched_process_parameter_type
     except (ImportError, AttributeError):

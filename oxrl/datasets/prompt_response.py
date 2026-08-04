@@ -84,12 +84,14 @@ class PromptResponseDataset(Dataset):
         # 1. Tokenize the prompt
         # When tokenize=True and return_tensors='pt', it returns shape [1, seq_len]
         # [0]: [1, seq_len] -> [seq_len]
-        prompt_ids = self.tokenizer.apply_chat_template(
+        _ct_out = self.tokenizer.apply_chat_template(
                                                         conversation=message,
+                                                        enable_thinking=False,
                                                         add_generation_prompt=True,
                                                         tokenize=True,
                                                         return_tensors='pt'
-                                                        )[0]
+                                                        )
+        prompt_ids = (_ct_out['input_ids'][0] if hasattr(_ct_out, 'keys') else _ct_out[0])
         prompt_attn_mask = torch.ones_like(prompt_ids)
         prompt_len = len(prompt_ids)
 

@@ -15,7 +15,7 @@ from oxrl.rewards.base import (
     extract_mcqa_answer
 )
 from oxrl.rewards.math import (
-    gsm8k_reward_func,
+    gsm8k_reward_func, gsm8k_format_accuracy_reward_func,
     math_reward_func,
     soft_math_reward_func
 )
